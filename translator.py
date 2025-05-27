@@ -1,7 +1,7 @@
 import hcl
 import json
 import logging
-# import os
+import os
 import pandas as pd
 import ipaddress
 import argparse
@@ -20,6 +20,7 @@ import numpy as np
 # logging.basicConfig(level=LOGLEVEL)
 # internet_sg_id = "def000ad-0000-0000-0000-000000000001"
 # anywhere_sg_id = "def000ad-0000-0000-0000-000000000000"
+# any_webgroup_id = "def000ad-0000-0000-0000-000000000002"
 # # could add range delimited by : eg. 80:81
 # default_web_port_ranges = ["80", "443"]
 # global_catch_all_action = "PERMIT"
@@ -28,11 +29,17 @@ import numpy as np
 # output_path = "./output"
 # debug_path = "./debug"
 
+def ensure_directory_exists(path):
+    """Ensure a directory exists, creating it if necessary."""
+    if not os.path.exists(path):
+        os.makedirs(path)
+
 def get_arguments():
     parser = argparse.ArgumentParser(description="Your script description here")
     parser.add_argument('--loglevel', default="WARNING", choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], help="Set the logging level.")
     parser.add_argument('--internet-sg-id', default="def000ad-0000-0000-0000-000000000001", help="Internet security group ID.")
     parser.add_argument('--anywhere-sg-id', default="def000ad-0000-0000-0000-000000000000", help="Anywhere security group ID.")
+    parser.add_argument('--any-webgroup-id', default="def000ad-0000-0000-0000-000000000002", help="Any webgroup ID.")
     parser.add_argument('--default-web-port-ranges', nargs='+', default=["80", "443"], help="Default web port ranges. Can provide multiple, space separated. Can provide a range by comma-delimiting.")
     parser.add_argument('--global-catch-all-action', default='PERMIT', choices=['PERMIT', 'DENY'], help="Global catch all action. Choices are 'PERMIT' or 'DENY'.")
     parser.add_argument('--config-path', default='./input', help="Path to the configuration files.")
@@ -515,6 +522,11 @@ def load_tf_resource(resource_name):
 
 
 
+def ensure_dir_exists(dir_path):
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
+
+
 def main():
     # Fetch arguments
     args = get_arguments()
@@ -536,6 +548,10 @@ def main():
     output_path = args.output_path
     global debug_path
     debug_path = args.debug_path
+
+    # Ensure output and debug directories exist
+    ensure_directory_exists(output_path)
+    ensure_directory_exists(debug_path)
 
     # Load TF exports
     fw_tag_df = load_tf_resource('firewall_tag')
