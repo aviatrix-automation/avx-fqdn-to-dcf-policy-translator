@@ -213,20 +213,7 @@ def build_webgroup_df(fqdn_tag_rule_df):
         lambda row: "{}_{}_{}".format(row['fqdn_tag_name'], row['protocol'], row['port']), axis=1)
     fqdn_tag_rule_df['selector'] = fqdn_tag_rule_df['fqdn'].apply(
         translate_fqdn_tag_to_sg_selector)
-    # add any-domain webgroup for discovery
-
-    any_domain_webgroup_df = pd.DataFrame([{
-        'name': 'any-domain',
-        'protocol': 'tcp',
-        'port': '443',
-        'selector': {
-            'match_expressions': [{
-                'snifilter': '*'
-            }
-            ]
-        }
-    }])
-    fqdn_tag_rule_df = pd.concat([fqdn_tag_rule_df, any_domain_webgroup_df], ignore_index=True)
+    # Note: Using Aviatrix built-in "Any" webgroup instead of creating custom any-domain webgroup
     fqdn_tag_rule_df = remove_invalid_name_chars(fqdn_tag_rule_df , "name")
     return fqdn_tag_rule_df
 
@@ -301,7 +288,7 @@ def build_l4_dcf_policies(fw_policy_df):
     return fw_policy_df
 
 
-def build_internet_policies(gateways_df, fqdn_df, webgroups_df):
+def build_internet_policies(gateways_df, fqdn_df, webgroups_df, any_webgroup_id):
     egress_vpcs = gateways_df[(gateways_df['is_hagw'] == 'no') & (
         gateways_df['enable_nat'] == 'yes')].drop_duplicates(subset=['vpc_id', 'vpc_region', 'account_name'])
     egress_vpcs = egress_vpcs[[
@@ -373,7 +360,7 @@ def build_internet_policies(gateways_df, fqdn_df, webgroups_df):
     #If Discovery is disabled, this is unnecessary:
     if not egress_vpcs_with_discovery.empty:
         discovery_policies_l7 = pd.DataFrame([{'src_smart_groups': list(egress_vpcs_with_discovery['src_smart_groups']), 'dst_smart_groups':[internet_sg_id],
-                                            'action':'PERMIT', 'logging':True, 'protocol':'TCP', 'name':'Egress-Discovery-L7', 'port_ranges':translate_port_to_port_range(default_web_port_ranges), 'web_groups': ['${aviatrix_web_group.any-domain.id}']}])
+                                            'action':'PERMIT', 'logging':True, 'protocol':'TCP', 'name':'Egress-Discovery-L7', 'port_ranges':translate_port_to_port_range(default_web_port_ranges), 'web_groups': [any_webgroup_id]}])
         
         discovery_policies_l4 = pd.DataFrame([{'src_smart_groups': list(egress_vpcs_with_discovery['src_smart_groups']), 'dst_smart_groups':[internet_sg_id],
                                             'action':'PERMIT', 'logging':True, 'protocol':'ANY', 'name':'Egress-Discovery-L4', 'port_ranges':None, 'web_groups': None}])
@@ -537,6 +524,8 @@ def main():
     internet_sg_id = args.internet_sg_id
     global anywhere_sg_id
     anywhere_sg_id = args.anywhere_sg_id
+    global any_webgroup_id
+    any_webgroup_id = args.any_webgroup_id
     # could add range delimited by : eg. 80:81
     global default_web_port_ranges
     default_web_port_ranges = args.default_web_port_ranges
@@ -599,7 +588,7 @@ def main():
     export_dataframe_to_tf(webgroups_df[['name','selector']], 'aviatrix_web_group', 'name')
 
     # Create Internet policies
-    internet_rules_df = build_internet_policies(gateways_df, fqdn_df, webgroups_df)
+    internet_rules_df = build_internet_policies(gateways_df, fqdn_df, webgroups_df, any_webgroup_id)
 
     # Create Default Policies
     catch_all_rules_df = build_catch_all_policies(gateways_df, fw_gw_df)
