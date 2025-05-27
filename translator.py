@@ -9,8 +9,8 @@ import numpy as np
 
 
 # TODO
-# [] Split fqdn tags webgroups into allow/deny
-# [] Render webroup policies as allow/deny with deny's first
+# [x] Split fqdn tags webgroups into allow/deny
+# [x] Render webroup policies as allow/deny with deny's first
 # [] Add Webgroup policies in monitor mode for tags that are assigned but disabled
 # [] Add additional port/proto combos for unsupported webgroups in `eval_unsupported_webgroups`
 # [] Match logging policy for legacy L4
@@ -207,10 +207,10 @@ def eval_unsupported_webgroups(fqdn_tag_rule_df,fqdn_df):
 
 
 def build_webgroup_df(fqdn_tag_rule_df):
-    fqdn_tag_rule_df = fqdn_tag_rule_df.groupby(['fqdn_tag_name', 'protocol', 'port'])[
+    fqdn_tag_rule_df = fqdn_tag_rule_df.groupby(['fqdn_tag_name', 'protocol', 'port', 'fqdn_mode'])[
         'fqdn'].apply(list).reset_index()
     fqdn_tag_rule_df['name'] = fqdn_tag_rule_df.apply(
-        lambda row: "{}_{}_{}".format(row['fqdn_tag_name'], row['protocol'], row['port']), axis=1)
+        lambda row: "{}_{}_{}_{}".format(row['fqdn_tag_name'], row['fqdn_mode'], row['protocol'], row['port']), axis=1)
     fqdn_tag_rule_df['selector'] = fqdn_tag_rule_df['fqdn'].apply(
         translate_fqdn_tag_to_sg_selector)
     # Note: Using Aviatrix built-in "Any" webgroup instead of creating custom any-domain webgroup
@@ -318,7 +318,7 @@ def build_internet_policies(gateways_df, fqdn_df, webgroups_df, any_webgroup_id)
     egress_vpcs_with_enabled_tags = egress_vpcs.explode("fqdn_tags").rename(columns={'fqdn_tags': 'fqdn_tag'}).merge(fqdn_df, on="fqdn_tag",how='left')
     egress_vpcs_with_enabled_tags = egress_vpcs_with_enabled_tags[egress_vpcs_with_enabled_tags['fqdn_enabled']==True]
     egress_vpcs_with_enabled_tags = egress_vpcs_with_enabled_tags.rename(columns={'fqdn_tag': 'fqdn_tag_name'})
-    fqdn_tag_policies = egress_vpcs_with_enabled_tags.merge(webgroups_df, on='fqdn_tag_name', how='left')
+    fqdn_tag_policies = egress_vpcs_with_enabled_tags.merge(webgroups_df, on=['fqdn_tag_name', 'fqdn_mode'], how='left')
     fqdn_tag_policies['web_groups'] = fqdn_tag_policies['name'].apply(
         lambda x: '${{aviatrix_web_group.{}.id}}'.format(x))
     fqdn_tag_policies = fqdn_tag_policies.groupby(['src_smart_groups','vpc_name', 'protocol', 'port','fqdn_mode'])[
@@ -326,11 +326,13 @@ def build_internet_policies(gateways_df, fqdn_df, webgroups_df, any_webgroup_id)
     fqdn_tag_policies['src_smart_groups']=fqdn_tag_policies['src_smart_groups'].apply(lambda x: [x])
     fqdn_tag_policies['dst_smart_groups']=internet_sg_id
     fqdn_tag_policies['dst_smart_groups']=fqdn_tag_policies['dst_smart_groups'].apply(lambda x: [x])
-    fqdn_tag_policies['action']="PERMIT"
+    fqdn_tag_policies['action']=fqdn_tag_policies['fqdn_mode'].apply(
+        lambda x: 'ALLOW' if x == 'white' else 'DENY')
     fqdn_tag_policies['port_ranges']=fqdn_tag_policies['port'].apply(lambda x: [x]).apply(translate_port_to_port_range)
     fqdn_tag_policies['logging']=True
     fqdn_tag_policies['protocol']=fqdn_tag_policies['protocol'].str.upper()
-    fqdn_tag_policies['name'] = fqdn_tag_policies['vpc_name'].apply(lambda x: "Egress_{}".format(x))
+    fqdn_tag_policies['name'] = fqdn_tag_policies.apply(
+        lambda row: "Egress_{}_{}_{}".format(row['vpc_name'], row['fqdn_mode'], row['protocol']), axis=1)
     fqdn_tag_policies = fqdn_tag_policies[['src_smart_groups','dst_smart_groups','action','port_ranges','logging','protocol','name','web_groups']]
 
     # Build default policies for fqdn tags based on default action - whitelist/blacklist - create a single policy for all whitelist tags, and all blacklist tags
@@ -385,6 +387,21 @@ def build_internet_policies(gateways_df, fqdn_df, webgroups_df, any_webgroup_id)
     #internet_egress_policies = pd.concat([fqdn_tag_policies,fqdn_tag_default_policies,nat_only_policies])
     
     internet_egress_policies = internet_egress_policies.reset_index(drop=True)
+    
+    # Sort policies with proper ordering:
+    # - Black mode: DENY specific webgroups first, then ALLOW default
+    # - White mode: ALLOW specific webgroups first, then DENY default
+    def get_policy_priority(row):
+        is_default_policy = pd.isna(row['web_groups']) or row['web_groups'] is None
+        if is_default_policy:
+            return 2  # Default policies come after specific policies
+        else:
+            return 1  # Specific webgroup policies come first
+    
+    internet_egress_policies['sort_priority'] = internet_egress_policies.apply(get_policy_priority, axis=1)
+    internet_egress_policies = internet_egress_policies.sort_values(['sort_priority']).drop(columns=['sort_priority'])
+    internet_egress_policies = internet_egress_policies.reset_index(drop=True)
+    
     internet_egress_policies.index = internet_egress_policies.index + 1000
     internet_egress_policies['priority'] = internet_egress_policies.index
     return internet_egress_policies
