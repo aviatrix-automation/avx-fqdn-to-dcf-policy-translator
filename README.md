@@ -67,6 +67,17 @@ smartgroups.csv - Review the SmartGroup Configuration (includes FQDN SmartGroups
 full_policy_list.csv - Comprehensive list of all translated policies including FQDN SmartGroup policies
 ```
 
+### Log Output
+When running the translator, pay attention to the log output for important information:
+
+* **WARNING messages** indicate DCF 8.0 incompatible SNI domains that were filtered out
+* **INFO messages** show the count of domains retained for each webgroup
+* Example log output:
+```
+WARNING:root:Filtered 11 DCF 8.0 incompatible SNI domains for webgroup 'ws-prod-egress-whitelist_permit_tcp_443': ['*awsapps.com', '*broadcast.officeapps.live.com', ...]
+INFO:root:Retained 215 DCF 8.0 compatible domains for webgroup 'ws-prod-egress-whitelist_permit_tcp_443'
+```
+
 ## Pushing Configuration to the Aviatrix Controller
 Use Terraform to push the new configuration to the controller.
 * It's recommended to push the new configuration to a lab controller prior to pushing to production.  A lab controller can be deployed without requiring any Aviatrix licensing to test the policy configuration.
@@ -135,6 +146,35 @@ There are 4 catch-alls created
 * All rules except the global catch all are set to log – independent of whether they were logging prior to migration.
 
 ## Important Notes
+
+### DCF 8.0 SNI Domain Validation
+The translator now includes automatic validation for DCF 8.0 SNI domain compatibility:
+
+**Validation Logic:**
+* SNI domains are validated against DCF 8.0 regex pattern: `\*|\*\.[-A-Za-z0-9_.]+|[-A-Za-z0-9_.]+`
+* This pattern supports three domain formats:
+  - Exact wildcard: `*`
+  - Wildcard with subdomain: `*.domain.com` (requires dot after asterisk)
+  - Regular domain: `domain.com`
+
+**Automatic Filtering:**
+* Malformed domains that fail DCF 8.0 validation are automatically filtered out
+* **WARNING** level logs are generated for each filtered domain with webgroup context
+* Examples of domains filtered in DCF 8.0 (but supported in 8.1+):
+  - `*awsapps.com` ❌ (missing dot after asterisk)
+  - `*broadcast.officeapps.live.com` ❌ (missing dot after asterisk)
+  - `*excel.officeapps.live.com` ❌ (missing dot after asterisk)
+
+**Domains That Pass Validation:**
+* `*.protection.office.com` ✅ (proper subdomain wildcard)
+* `*.portal.cloudappsecurity.com` ✅ (proper subdomain wildcard)
+* `example.com` ✅ (regular domain)
+* `*` ✅ (exact wildcard)
+
+**Benefits:**
+* Prevents terraform apply failures due to malformed SNI domains
+* Maintains compatibility with DCF 8.0 while preparing for 8.1+ features
+* Provides clear visibility into filtered domains via logging
 
 ### FQDN Traffic Handling
 The translator now provides comprehensive support for all types of FQDN traffic:

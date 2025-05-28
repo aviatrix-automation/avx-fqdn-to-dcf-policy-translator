@@ -6,6 +6,64 @@ import pandas as pd
 import ipaddress
 import argparse
 import numpy as np
+import re
+
+
+# DCF 8.0 SNI domain validation regex pattern
+DCF_SNI_DOMAIN_PATTERN = re.compile(r'^(\*|\*\.[-A-Za-z0-9_.]+|[-A-Za-z0-9_.]+)$')
+
+def validate_sni_domain_for_dcf(domain):
+    """
+    Validate if a domain matches DCF 8.0 SNI filter requirements.
+    
+    Args:
+        domain (str): The domain to validate
+        
+    Returns:
+        bool: True if domain is valid for DCF 8.0, False otherwise
+        
+    The DCF 8.0 regex pattern allows:
+    - Exact wildcard: *
+    - Wildcard with subdomain: *.domain.com
+    - Regular domain: domain.com
+    
+    Invalid patterns like "*domain.com" (wildcard without dot) are rejected.
+    """
+    if not domain or not isinstance(domain, str):
+        return False
+    
+    domain = domain.strip()
+    return bool(DCF_SNI_DOMAIN_PATTERN.match(domain))
+
+def filter_domains_for_dcf_compatibility(fqdn_list, webgroup_name=None):
+    """
+    Filter FQDN list to only include DCF 8.0 compatible domains.
+    
+    Args:
+        fqdn_list (list): List of domain strings
+        webgroup_name (str, optional): Name of webgroup for logging context
+        
+    Returns:
+        tuple: (valid_domains, invalid_domains)
+    """
+    valid_domains = []
+    invalid_domains = []
+    
+    webgroup_context = f" for webgroup '{webgroup_name}'" if webgroup_name else ""
+    
+    for domain in fqdn_list:
+        if validate_sni_domain_for_dcf(domain):
+            valid_domains.append(domain)
+        else:
+            invalid_domains.append(domain)
+            
+    if invalid_domains:
+        logging.warning(f"Filtered {len(invalid_domains)} DCF 8.0 incompatible SNI domains{webgroup_context}: {invalid_domains}")
+        
+    if valid_domains:
+        logging.info(f"Retained {len(valid_domains)} DCF 8.0 compatible domains{webgroup_context}")
+    
+    return valid_domains, invalid_domains
 
 
 # TODO
@@ -222,17 +280,48 @@ def eval_unsupported_webgroups(fqdn_tag_rule_df, fqdn_df):
 def build_webgroup_df(fqdn_tag_rule_df):
     fqdn_tag_rule_df = fqdn_tag_rule_df.groupby(['fqdn_tag_name', 'protocol', 'port', 'fqdn_mode'])[
         'fqdn'].apply(list).reset_index()
-    
+
     def create_webgroup_name(row):
         # Replace white/black mode with permit/deny in the webgroup name
         mode_suffix = 'permit' if row['fqdn_mode'] == 'white' else 'deny'
         return "{}_{}_{}_{}".format(row['fqdn_tag_name'], mode_suffix, row['protocol'], row['port'])
-    
+
     fqdn_tag_rule_df['name'] = fqdn_tag_rule_df.apply(create_webgroup_name, axis=1)
-    fqdn_tag_rule_df['selector'] = fqdn_tag_rule_df['fqdn'].apply(
-        translate_fqdn_tag_to_sg_selector)
+    
+    # Filter domains for DCF 8.0 compatibility before creating selectors
+    def filter_and_create_selector(row):
+        webgroup_name = row['name']
+        valid_domains, invalid_domains = filter_domains_for_dcf_compatibility(row['fqdn'], webgroup_name)
+        
+        if invalid_domains:
+            # Store invalid domains for reporting
+            if not hasattr(filter_and_create_selector, 'all_invalid_domains'):
+                filter_and_create_selector.all_invalid_domains = []
+            filter_and_create_selector.all_invalid_domains.extend([
+                {'webgroup': webgroup_name, 'domain': domain} for domain in invalid_domains
+            ])
+        
+        return translate_fqdn_tag_to_sg_selector(valid_domains)
+    
+    fqdn_tag_rule_df['selector'] = fqdn_tag_rule_df.apply(filter_and_create_selector, axis=1)
+    
     # Note: Using Aviatrix built-in "Any" webgroup instead of creating custom any-domain webgroup
     fqdn_tag_rule_df = remove_invalid_name_chars(fqdn_tag_rule_df , "name")
+    
+    # Log summary of filtered domains if any
+    if hasattr(filter_and_create_selector, 'all_invalid_domains'):
+        invalid_count = len(filter_and_create_selector.all_invalid_domains)
+        logging.warning(f"Total DCF 8.0 incompatible SNI domains filtered: {invalid_count}")
+        
+        # Group by webgroup for detailed reporting
+        from collections import defaultdict
+        by_webgroup = defaultdict(list)
+        for item in filter_and_create_selector.all_invalid_domains:
+            by_webgroup[item['webgroup']].append(item['domain'])
+        
+        for webgroup, domains in by_webgroup.items():
+            logging.warning(f"Webgroup '{webgroup}' had {len(domains)} filtered domains: {domains}")
+    
     return fqdn_tag_rule_df
 
 
