@@ -222,8 +222,13 @@ def eval_unsupported_webgroups(fqdn_tag_rule_df, fqdn_df):
 def build_webgroup_df(fqdn_tag_rule_df):
     fqdn_tag_rule_df = fqdn_tag_rule_df.groupby(['fqdn_tag_name', 'protocol', 'port', 'fqdn_mode'])[
         'fqdn'].apply(list).reset_index()
-    fqdn_tag_rule_df['name'] = fqdn_tag_rule_df.apply(
-        lambda row: "{}_{}_{}_{}".format(row['fqdn_tag_name'], row['fqdn_mode'], row['protocol'], row['port']), axis=1)
+    
+    def create_webgroup_name(row):
+        # Replace white/black mode with permit/deny in the webgroup name
+        mode_suffix = 'permit' if row['fqdn_mode'] == 'white' else 'deny'
+        return "{}_{}_{}_{}".format(row['fqdn_tag_name'], mode_suffix, row['protocol'], row['port'])
+    
+    fqdn_tag_rule_df['name'] = fqdn_tag_rule_df.apply(create_webgroup_name, axis=1)
     fqdn_tag_rule_df['selector'] = fqdn_tag_rule_df['fqdn'].apply(
         translate_fqdn_tag_to_sg_selector)
     # Note: Using Aviatrix built-in "Any" webgroup instead of creating custom any-domain webgroup
@@ -348,10 +353,10 @@ def build_internet_policies(gateways_df, fqdn_df, webgroups_df, any_webgroup_id)
     fqdn_tag_policies['logging']=True
     fqdn_tag_policies['protocol']=fqdn_tag_policies['protocol'].str.upper()
     fqdn_tag_policies['name'] = fqdn_tag_policies.apply(
-        lambda row: "Egress_{}_{}".format(row['vpc_name'], row['fqdn_mode']), axis=1)
+        lambda row: "Egress_{}_{}".format(row['vpc_name'], 'permit' if row['fqdn_mode'] == 'white' else 'deny'), axis=1)
     fqdn_tag_policies = fqdn_tag_policies[['src_smart_groups','dst_smart_groups','action','port_ranges','logging','protocol','name','web_groups']]
 
-    # Build default policies for fqdn tags based on default action - whitelist/blacklist - create a single policy for all whitelist tags, and all blacklist tags
+    # Build default policies for fqdn tags based on default action - permit/deny - create a single policy for all permit tags, and all deny tags
     fqdn_tag_default_policies = egress_vpcs_with_enabled_tags.groupby(['fqdn_mode'])['src_smart_groups'].apply(list).reset_index()
     fqdn_tag_default_policies['dst_smart_groups']=internet_sg_id
     fqdn_tag_default_policies['dst_smart_groups']=fqdn_tag_default_policies['dst_smart_groups'].apply(lambda x: [x])
@@ -362,7 +367,7 @@ def build_internet_policies(gateways_df, fqdn_df, webgroups_df, any_webgroup_id)
     fqdn_tag_default_policies['action']=fqdn_tag_default_policies['fqdn_mode'].apply(
         lambda x: 'DENY' if x == 'white' else 'PERMIT')
     fqdn_tag_default_policies['name'] = fqdn_tag_default_policies['fqdn_mode'].apply(
-        lambda x: 'Egress-AllowList-Default' if x == 'white' else 'Egress-DenyList-Default')
+        lambda x: 'Egress-Permit-Default' if x == 'white' else 'Egress-Deny-Default')
     fqdn_tag_default_policies = fqdn_tag_default_policies.drop(columns='fqdn_mode')
 
     # Build policy for egress VPCs that only have NAT and no fqdn tags.  This renders as a single policy.  Src VPCs, Dst Internet, Port/Protocol Any.
@@ -405,8 +410,8 @@ def build_internet_policies(gateways_df, fqdn_df, webgroups_df, any_webgroup_id)
     internet_egress_policies = internet_egress_policies.reset_index(drop=True)
     
     # Sort policies with proper ordering:
-    # - Black mode: DENY specific webgroups first, then ALLOW default
-    # - White mode: ALLOW specific webgroups first, then DENY default
+    # - Deny mode: DENY specific webgroups first, then ALLOW default
+    # - Permit mode: ALLOW specific webgroups first, then DENY default
     def get_policy_priority(row):
         web_groups = row['web_groups']
         # Check if web_groups is None, NaN, empty list, or contains None values
@@ -710,7 +715,7 @@ def build_hostname_policies(gateways_df, fqdn_df, hostname_smartgroups_df, hostn
                 dst_sg_ref = f"${{aviatrix_smart_group.{sg_name}.id}}"
                 
                 action = 'PERMIT' if fqdn_mode == 'white' else 'DENY'
-                policy_name = f"FQDN_{vpc_display_name}_{fqdn_mode}"
+                policy_name = f"FQDN_{vpc_display_name}_{'permit' if fqdn_mode == 'white' else 'deny'}"
                 
                 # Convert port to port_ranges format, handling special cases
                 if port == 'ALL':
