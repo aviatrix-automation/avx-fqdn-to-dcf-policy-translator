@@ -61,10 +61,10 @@ The translator script will output several files that can then be used to configu
 
 ```
 aviatrix_distributed_firewall_policy_list.tf.json - Distributed Cloud Firewall Rule list for configuring the Aviatrix Platform
-aviatrix_smart_group.tf.json - Smart Groups Terraform JSON for configuring the Aviatrix Platform
+aviatrix_smart_group.tf.json - Smart Groups Terraform JSON for configuring the Aviatrix Platform (includes both CIDR-based and FQDN-based SmartGroups)
 aviatrix_web_group.tf.json - Web Groups Terraform JSON for configuring the Aviatrix Platform
-smartgroups.csv - Review the SmartGroup Configuration
-unsupported_fqdn_rules.csv - Review the FQDN rules that were not translated because they seem to use an unsupported port/protocol
+smartgroups.csv - Review the SmartGroup Configuration (includes FQDN SmartGroups for hostname-based filtering)
+full_policy_list.csv - Comprehensive list of all translated policies including FQDN SmartGroup policies
 ```
 
 ## Pushing Configuration to the Aviatrix Controller
@@ -99,13 +99,26 @@ L4/Stateful Firewall Translation:
 * There are additional opportunities for optimization where a single destination shares the same source/proto/ports, but that is not implemented.
 
 ### FQDN Translation:
+The FQDN translation process now intelligently routes traffic based on the protocol and port requirements:
+
+#### WebGroup Translation (HTTP/HTTPS Traffic):
+* FQDN rules using TCP protocol on standard web ports (80, 443) are translated to WebGroups for optimal web traffic filtering
 * Disabled tags are removed from evaluation.
-* If a VPC has an enabled tag, it will create a policy for each port/proto combination with the source smartgroup as the VPC, the destination smartgroup as the built-in “Public Internet” smartgroup, and the webgroup with it’s port/proto combination.  This could mean multiple policies per VPC if there are multiple webgroups created per the translation above.
-* An Egress catch-all policy is then created for all VPCs that have the same “base policy” for an FQDN tag.  This will be something like src: “multiple source smartgroups”, dst – “Public Internet”, no webgroup, deny all traffic to the built-in “Public Internet” smartgroup.
-* Next VPCs in discovery mode will have two policies created – one for known web traffic ports, and one for all other traffic.
-* src: “multiple source smartgroups”, dst – “Public Internet”, built-in “Any” webgroup, logging enabled, action: Allow, proto: tcp, ports: 80,443
-* src: “multiple source smartgroups”, dst – “Public Internet”, logging enabled, action: Allow, proto: any
-* Last, VPCs that are doing single-ip source nat, but don’t have any FQDN tags enabled will have an allow all policy for public internet access
+* If a VPC has an enabled tag for web traffic, it creates policies with the source SmartGroup as the VPC, destination SmartGroup as the built-in "Public Internet" SmartGroup, and the appropriate WebGroup with its port/protocol combination
+* An egress catch-all policy is created for all VPCs that have the same "base policy" for an FQDN tag
+
+#### FQDN SmartGroup Translation (Non-HTTP/HTTPS Traffic):
+* FQDN rules using non-standard ports, non-TCP protocols, or protocol='all' are translated to FQDN SmartGroups (Hostname SmartGroups)
+* These SmartGroups use DNS Hostname Resource Type to resolve FQDNs to IP addresses at policy enforcement time
+* FQDN policies are created with naming convention: `FQDN_{vpc_name}_{mode}_{protocol}_{port}`
+* Multiple FQDNs with the same protocol/port/mode are efficiently grouped into single SmartGroups
+* Supports all traffic types including SSH, SMTP, custom applications, and any-protocol rules
+
+#### Discovery Mode and NAT-Only VPCs:
+* VPCs in discovery mode have two policies created – one for known web traffic ports, and one for all other traffic
+* src: "multiple source smartgroups", dst – "Public Internet", built-in "Any" webgroup, logging enabled, action: Allow, proto: tcp, ports: 80,443
+* src: "multiple source smartgroups", dst – "Public Internet", logging enabled, action: Allow, proto: any
+* VPCs doing single-IP source NAT without FQDN tags have an allow-all policy for public internet access
 
 ### Catch-Alls:
 * Since these VPCs may not be attached to a transit and doing L4 east-west policy, we have to make sure this maintains the existing security posture, but doesn’t break anything new.  A simple way to do this would be to create a set of deny’s for any VPC that has a stateful FW policy set to default deny, and then a single Allow all.  Many customers won’t want an Allow All as the final policy, though, so a more granular approach is taken.
@@ -122,7 +135,52 @@ There are 4 catch-alls created
 * All rules except the global catch all are set to log – independent of whether they were logging prior to migration.
 
 ## Important Notes
-As of version 7.1, Distributed Cloud Firewall webgroups only support HTTP and TLS traffic for FQDN filtering.  The legacy FQDN filtering feature support non-HTTP/TLS traffic such as SSH and SMTP.  This will be supported with Webgroups in a future release.  In the meantime, the translator script will alert when it detects a policy that is not on either port 443 or port 80 and alert that it may not be compatible with the new DCF policy.  It is recommended to manually review these policies and address them with one of the following mechanisms:
 
-1. Manually translate these policies to use an IP/CIDR based SmartGroup as the destination.
-2. Leverage Webgroups and DCF for the majority of the policies, but leverage the legacy FQDN feature for non-HTTP/TLS policies until it is supported in Webgroups.  You can do this by creating a legacy FQDN Tag that has a 0.0.0.0/0 allow policy on TCP ports 443 and 80, and then explicit allows for the alternative ports.
+### FQDN Traffic Handling
+The translator now provides comprehensive support for all types of FQDN traffic:
+
+**WebGroups (HTTP/HTTPS Traffic):** 
+* WebGroups support HTTP and TLS traffic on standard web ports (80, 443) for FQDN filtering
+* Optimal performance and feature set for web traffic
+
+**FQDN SmartGroups (Non-HTTP/HTTPS Traffic):**
+* FQDN SmartGroups (Hostname SmartGroups) now handle all non-HTTP/HTTPS traffic including SSH, SMTP, custom applications, and any-protocol rules
+* Uses DNS Hostname Resource Type to resolve FQDNs to IP addresses at policy enforcement time
+* Supports all protocols and ports that the legacy FQDN filtering feature supported
+* **Important:** FQDNs must be entered as fully qualified domain names (hostnames alone are not supported)
+* **Important:** Wildcards are not supported in FQDN SmartGroups
+* **Important:** Valid DNS hostname characters only
+
+### DNS Resolution
+* If no custom DNS server is configured, FQDN SmartGroups resolve using the gateway's management DNS server
+* Custom DNS servers can be configured for consistent FQDN resolution across all gateways
+* Refer to Aviatrix documentation for hostname resolution settings
+
+### Migration Strategy
+* **No manual intervention required:** All FQDN rules are now automatically translated
+* Web traffic (HTTP/HTTPS on ports 80/443) uses optimized WebGroups
+* All other traffic uses FQDN SmartGroups for comprehensive coverage
+* Review the generated `smartgroups.csv` to verify FQDN SmartGroup creation
+* Test in a lab environment before production deployment
+
+## FQDN SmartGroup Feature
+
+### About DNS Hostname SmartGroups
+The DNS Hostname Resource Type in a SmartGroup enables filtering of non-TLS, non-HTTP traffic (such as SMTP and SSH) using the fully qualified domain name (FQDN) of the target. The FQDN of the SmartGroup Resource Type is resolved to its correct IP address at policy enforcement time.
+
+### Key Features and Limitations
+* **FQDN Requirement:** You must enter the DNS Hostname resource type as a FQDN; entering just a hostname is not supported
+* **Character Restrictions:** The FQDN can only include characters that are valid in DNS hostnames
+* **No Wildcards:** Wildcard characters are not supported in FQDN SmartGroups
+* **DNS Resolution:** FQDNs are resolved using the gateway's configured DNS server (management DNS by default)
+
+### When to Use FQDN SmartGroups vs WebGroups
+* **Use WebGroups for:** HTTP, HTTPS, and TLS traffic on standard web ports (80, 443) for optimal performance
+* **Use FQDN SmartGroups for:** All other traffic types including SSH (port 22), SMTP (port 25), custom applications, non-standard ports, and any-protocol rules
+
+### Translation Behavior
+The translator automatically determines the appropriate resource type:
+1. **TCP traffic on ports 80/443** → WebGroups (optimal for web traffic)
+2. **All other traffic** → FQDN SmartGroups (comprehensive protocol support)
+
+This ensures complete coverage of all legacy FQDN policies while optimizing performance for web traffic.

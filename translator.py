@@ -11,19 +11,11 @@ import numpy as np
 # TODO
 # [x] Split fqdn tags webgroups into allow/deny
 # [x] Render webroup policies as allow/deny with deny's first
+# [] If an FQDN tag is applied, but has a source IP filter, this needs to be treated as a distinct entity from FQDN policies attached to the VPC.  Rather than using the source SmartGroup of the VPC, a dedicated Source SmartGroup should be created for the source IP filter.
 # [] Add Webgroup policies in monitor mode for tags that are assigned but disabled
 # [] Add additional port/proto combos for unsupported webgroups in `eval_unsupported_webgroups`
 # [] Match logging policy for legacy L4
 # [] Evaluate scenarios where an L4 stateful FW policy might be defined as relative to the VPC CIDR.  For example, a src 0.0.0.0/0 may need to be translated to the VPC CIDR due to it's relativity.
-
-# LOGLEVEL = 'WARNING'
-# logging.basicConfig(level=LOGLEVEL)
-# internet_sg_id = "def000ad-0000-0000-0000-000000000001"
-# anywhere_sg_id = "def000ad-0000-0000-0000-000000000000"
-# any_webgroup_id = "def000ad-0000-0000-0000-000000000002"
-# # could add range delimited by : eg. 80:81
-# default_web_port_ranges = ["80", "443"]
-# global_catch_all_action = "PERMIT"
 
 # config_path = "./test_files"
 # output_path = "./output"
@@ -149,11 +141,12 @@ def build_smartgroup_df(fw_policy_df, fw_tag_df, gateways_df):
     smartgroups = pd.concat(sg_dfs)
     # clean invalid characters
     smartgroups = remove_invalid_name_chars(smartgroups, 'name')
-    smartgroups.to_csv('{}/smartgroups.csv'.format(output_path))
     return smartgroups
 
 
 def remove_invalid_name_chars(df, column):
+    # Convert to string first to handle mixed data types
+    df[column] = df[column].astype(str)
     df[column] = df[column].str.strip()
     df[column] = df[column].str.replace('~', '_', regex=False)
     df[column] = df[column].str.replace(" ", "_", regex=False)
@@ -192,18 +185,46 @@ def translate_fw_tag_to_sg_selector(tag_cidrs):
     return {'match_expressions': match_expressions}
 
 
-def eval_unsupported_webgroups(fqdn_tag_rule_df,fqdn_df):
+def eval_unsupported_webgroups(fqdn_tag_rule_df, fqdn_df):
+    """
+    Split FQDN rules into webgroup-supported and hostname smartgroup rules.
+    All FQDN rules are now supported - no more truly unsupported rules.
+    Returns tuple of (webgroup_rules, hostname_rules, truly_unsupported_rules)
+    """
     fqdn_tag_rule_df = fqdn_tag_rule_df.merge(fqdn_df, left_on="fqdn_tag_name", right_on="fqdn_tag", how="left")
-    unsupported_rules = fqdn_tag_rule_df[(
-        fqdn_tag_rule_df['protocol'] == 'all') | (fqdn_tag_rule_df['port'] == '22')]
-    if len(unsupported_rules) > 0:
-        unsupported_rules.to_csv('{}/unsupported_fqdn_rules.csv'.format(output_path))
-        logging.warning('{} rules are unsupported by webgroups and will need to be manually addressed.'.format(
-            len(unsupported_rules)))
-        logging.warning(unsupported_rules)
-    fqdn_tag_rule_df = fqdn_tag_rule_df[~(
-        (fqdn_tag_rule_df['protocol'] == 'all') | (fqdn_tag_rule_df['port'] == '22'))]
-    return fqdn_tag_rule_df
+    
+    # IMPORTANT: Only process enabled FQDN tags to maintain consistency with existing webgroup logic
+    enabled_fqdn_rules = fqdn_tag_rule_df[fqdn_tag_rule_df['fqdn_enabled'] == True]
+    
+    # Define which ports are supported by webgroups (HTTP/HTTPS traffic)
+    webgroup_supported_ports = set(default_web_port_ranges)
+    
+    # Rules that can use webgroups (HTTP/HTTPS on standard web ports)
+    webgroup_rules = enabled_fqdn_rules[
+        (enabled_fqdn_rules['protocol'].str.lower().isin(['tcp', 'http', 'https'])) &
+        (enabled_fqdn_rules['port'].isin(webgroup_supported_ports))
+    ]
+    
+    # ALL other enabled rules use hostname smartgroups (including protocol='all', SSH, blank ports)
+    hostname_rules = enabled_fqdn_rules[
+        ~((enabled_fqdn_rules['protocol'].str.lower().isin(['tcp', 'http', 'https'])) &
+          (enabled_fqdn_rules['port'].isin(webgroup_supported_ports)))
+    ]
+    
+    # Convert protocol "all" to "ANY" for DCF compatibility
+    hostname_rules = hostname_rules.copy()
+    hostname_rules.loc[hostname_rules['protocol'] == 'all', 'protocol'] = 'ANY'
+    
+    # Handle blank ports by setting to "ALL" for hostname SmartGroups
+    hostname_rules.loc[hostname_rules['port'] == '', 'port'] = 'ALL'
+    
+    # No more truly unsupported rules - everything is handled
+    unsupported_rules = pd.DataFrame()
+    
+    logging.info('FQDN rules split: {} webgroup rules, {} hostname rules, {} unsupported rules'.format(
+        len(webgroup_rules), len(hostname_rules), len(unsupported_rules)))
+    
+    return webgroup_rules, hostname_rules, unsupported_rules
 
 
 def build_webgroup_df(fqdn_tag_rule_df):
@@ -392,7 +413,20 @@ def build_internet_policies(gateways_df, fqdn_df, webgroups_df, any_webgroup_id)
     # - Black mode: DENY specific webgroups first, then ALLOW default
     # - White mode: ALLOW specific webgroups first, then DENY default
     def get_policy_priority(row):
-        is_default_policy = pd.isna(row['web_groups']) or row['web_groups'] is None
+        web_groups = row['web_groups']
+        # Check if web_groups is None, NaN, empty list, or contains None values
+        if web_groups is None:
+            is_default_policy = True
+        elif isinstance(web_groups, list):
+            # Check if list is empty or contains only None values
+            is_default_policy = len(web_groups) == 0 or all(x is None for x in web_groups)
+        else:
+            # Handle scalar values that might be NaN
+            try:
+                is_default_policy = pd.isna(web_groups)
+            except (ValueError, TypeError):
+                is_default_policy = False
+            
         if is_default_policy:
             return 2  # Default policies come after specific policies
         else:
@@ -402,7 +436,7 @@ def build_internet_policies(gateways_df, fqdn_df, webgroups_df, any_webgroup_id)
     internet_egress_policies = internet_egress_policies.sort_values(['sort_priority']).drop(columns=['sort_priority'])
     internet_egress_policies = internet_egress_policies.reset_index(drop=True)
     
-    internet_egress_policies.index = internet_egress_policies.index + 1000
+    internet_egress_policies.index = internet_egress_policies.index + 2000  # Webgroup/internet policies start at 2000
     internet_egress_policies['priority'] = internet_egress_policies.index
     return internet_egress_policies
 
@@ -488,7 +522,7 @@ def build_catch_all_policies(gateways_df,firewall_df):
     catch_all_policies['protocol']= "ANY"
     catch_all_policies['logging']= True
     catch_all_policies = catch_all_policies.reset_index(drop=True)
-    catch_all_policies.index = catch_all_policies.index + 2000
+    catch_all_policies.index = catch_all_policies.index + 3000  # Catch-all policies start at 3000
     catch_all_policies['priority'] = catch_all_policies.index
     catch_all_policies = catch_all_policies.drop('base_policy', axis=1)
     return catch_all_policies
@@ -506,7 +540,7 @@ def export_dataframe_to_tf(df, resource_name, name_column):
 def create_dataframe(tf_resource, resource_name):
     tf_resource_df = pd.DataFrame([tf_resource[x] for x in tf_resource.keys()])
     if LOGLEVEL == "DEBUG":
-        tf_resource_df.to_csv('{}/{}.csv'.format(resource_name,debug_path))
+        tf_resource_df.to_csv('{}/{}.csv'.format(debug_path, resource_name))
     return tf_resource_df
 
 
@@ -531,11 +565,163 @@ def ensure_dir_exists(dir_path):
         os.makedirs(dir_path)
 
 
+def build_hostname_smartgroups(hostname_rules_df):
+    """
+    Build hostname SmartGroups for FQDN rules that don't use webgroups.
+    Groups FQDNs by protocol/port combination for optimization.
+    """
+    if len(hostname_rules_df) == 0:
+        return pd.DataFrame(columns=['name', 'selector'])
+    
+    # Group FQDNs by protocol, port, and fqdn_mode for optimization
+    grouped = hostname_rules_df.groupby(['protocol', 'port', 'fqdn_mode'])['fqdn'].apply(list).reset_index()
+    
+    hostname_smartgroups = []
+    for _, row in grouped.iterrows():
+        # Create a unique name for the hostname smartgroup
+        protocol = row['protocol'].lower()
+        port = str(row['port']).lower()  # Handle ALL and other special port values
+        mode = row['fqdn_mode']
+        
+        # Create a hash for uniqueness when there are many FQDNs
+        fqdn_list = row['fqdn']
+        fqdn_hash = abs(hash(str(sorted(fqdn_list)))) % 10000
+        
+        name = f"fqdn_{protocol}_{port}_{mode}_{fqdn_hash}"
+        
+        # Create selector for hostname smartgroup using fqdn field
+        if len(fqdn_list) == 1:
+            selector = {'match_expressions': {'fqdn': fqdn_list[0].strip()}}
+        else:
+            # For multiple FQDNs, create multiple match expressions
+            match_expressions = []
+            for fqdn in fqdn_list:
+                match_expressions.append({'fqdn': fqdn.strip()})
+            selector = {'match_expressions': match_expressions}
+        
+        hostname_smartgroups.append({
+            'name': name,
+            'selector': selector,
+            'protocol': row['protocol'],  # Store original protocol value (ANY, etc.)
+            'port': row['port'],         # Store original port value (ALL, etc.)
+            'fqdn_mode': mode,
+            'fqdn_list': fqdn_list
+        })
+    
+    hostname_sg_df = pd.DataFrame(hostname_smartgroups)
+    hostname_sg_df = remove_invalid_name_chars(hostname_sg_df, 'name')
+    
+    logging.info(f"Created {len(hostname_sg_df)} hostname SmartGroups")
+    return hostname_sg_df
+
+
+def build_hostname_policies(gateways_df, fqdn_df, hostname_smartgroups_df, hostname_rules_df):
+    """
+    Build L4 policies using hostname SmartGroups as destinations.
+    Creates one policy per unique (src VPC, protocol/port, hostname SmartGroup) combination.
+    """
+    if len(hostname_smartgroups_df) == 0 or len(hostname_rules_df) == 0:
+        return pd.DataFrame()
+    
+    # Get egress VPCs (same logic as in build_internet_policies)
+    egress_vpcs = gateways_df[(gateways_df['is_hagw'] == 'no') & (
+        gateways_df['enable_nat'] == 'yes')].drop_duplicates(subset=['vpc_id', 'vpc_region', 'account_name'])
+    
+    if len(egress_vpcs) == 0:
+        return pd.DataFrame()
+    
+    egress_vpcs = egress_vpcs[['fqdn_tags', 'vpc_name', 'vpc_id']]
+    egress_vpcs['src_smart_groups'] = egress_vpcs['vpc_id']
+    
+    # Clean VPC names for SmartGroup references
+    egress_vpcs['src_smart_groups'] = pretty_parse_vpc_name(egress_vpcs, "src_smart_groups")
+    egress_vpcs = remove_invalid_name_chars(egress_vpcs, "src_smart_groups")
+    
+    # Clean up disabled tag references
+    disabled_tag_names = list(fqdn_df[fqdn_df['fqdn_enabled'] == False]['fqdn_tag'])
+    egress_vpcs['fqdn_tags'] = egress_vpcs['fqdn_tags'].apply(
+        lambda x: [item for item in x if item not in disabled_tag_names])
+    
+    # Find VPCs that have FQDN tags that would map to hostname smartgroups
+    egress_vpcs_with_hostname_tags = egress_vpcs.explode("fqdn_tags").rename(columns={'fqdn_tags': 'fqdn_tag'})
+    egress_vpcs_with_hostname_tags = egress_vpcs_with_hostname_tags.merge(fqdn_df, on="fqdn_tag", how='left')
+    egress_vpcs_with_hostname_tags = egress_vpcs_with_hostname_tags[egress_vpcs_with_hostname_tags['fqdn_enabled']==True]
+    egress_vpcs_with_hostname_tags = egress_vpcs_with_hostname_tags.rename(columns={'fqdn_tag': 'fqdn_tag_name'})
+    
+    # Match VPCs to hostname rules to determine which hostname smartgroups they should use
+    vpc_hostname_matches = egress_vpcs_with_hostname_tags.merge(
+        hostname_rules_df[['fqdn_tag_name', 'protocol', 'port', 'fqdn_mode', 'fqdn']],
+        on=['fqdn_tag_name', 'fqdn_mode'], 
+        how='inner'
+    )
+    
+    # Create policies for each VPC/hostname SmartGroup combination
+    hostname_policies = []
+    for _, sg_row in hostname_smartgroups_df.iterrows():
+        protocol = sg_row['protocol']
+        port = sg_row['port']
+        fqdn_mode = sg_row['fqdn_mode']
+        sg_name = sg_row['name']
+        sg_fqdn_list = sg_row['fqdn_list']
+        
+        # Find VPCs that should use this hostname smartgroup
+        # Match by protocol, port, fqdn_mode and overlapping FQDNs
+        matching_vpcs = vpc_hostname_matches[
+            (vpc_hostname_matches['protocol'] == protocol) &
+            (vpc_hostname_matches['port'] == port) &
+            (vpc_hostname_matches['fqdn_mode'] == fqdn_mode) &
+            (vpc_hostname_matches['fqdn'].isin(sg_fqdn_list))
+        ].drop_duplicates(subset=['src_smart_groups'])
+        
+        if len(matching_vpcs) > 0:
+            # Group by VPC to create one policy per VPC for this hostname smartgroup
+            for vpc_name, vpc_group in matching_vpcs.groupby(['src_smart_groups', 'vpc_name']):
+                src_sg_name, vpc_display_name = vpc_name
+                src_sg_ref = f"${{aviatrix_smart_group.{src_sg_name}.id}}"
+                dst_sg_ref = f"${{aviatrix_smart_group.{sg_name}.id}}"
+                
+                action = 'PERMIT' if fqdn_mode == 'white' else 'DENY'
+                policy_name = f"FQDN_{vpc_display_name}_{fqdn_mode}_{protocol}_{port}"
+                
+                # Convert port to port_ranges format, handling special cases
+                if port == 'ALL':
+                    port_ranges = None  # No port restrictions for ALL
+                else:
+                    port_ranges = translate_port_to_port_range([port]) if port else None
+                
+                # Ensure protocol is properly formatted for DCF
+                dcf_protocol = protocol.upper()
+                if dcf_protocol == 'ALL':
+                    dcf_protocol = 'ANY'
+                
+                hostname_policies.append({
+                    'src_smart_groups': [src_sg_ref],
+                    'dst_smart_groups': [dst_sg_ref],
+                    'action': action,
+                    'logging': True,
+                    'protocol': dcf_protocol,
+                    'name': policy_name,
+                    'port_ranges': port_ranges,
+                    'web_groups': None
+                })
+    
+    hostname_policies_df = pd.DataFrame(hostname_policies)
+    if len(hostname_policies_df) > 0:
+        hostname_policies_df = remove_invalid_name_chars(hostname_policies_df, 'name')
+        # Add priorities - hostname policies get priority 1000+
+        hostname_policies_df = hostname_policies_df.reset_index(drop=True)
+        hostname_policies_df.index = hostname_policies_df.index + 1000  # Hostname policies start at 1000
+        hostname_policies_df['priority'] = hostname_policies_df.index
+    
+    logging.info(f"Created {len(hostname_policies_df)} hostname-based policies")
+    return hostname_policies_df
+
+
 def main():
     # Fetch arguments
     args = get_arguments()
     global LOGLEVEL
-    loglevel=args.loglevel
+    LOGLEVEL = args.loglevel
     logging.basicConfig(level=args.loglevel)
     global internet_sg_id
     internet_sg_id = args.internet_sg_id
@@ -597,24 +783,51 @@ def main():
         with open('{}/aviatrix_distributed_firewalling_policy_list.tf.json'.format(output_path), 'w') as json_file:
             json.dump(l4_policies_dict, json_file, indent=1)
 
-    # Create Webgroups
-    fqdn_tag_rule_df = eval_unsupported_webgroups(fqdn_tag_rule_df,fqdn_df)
+    # Split FQDN rules into webgroup and hostname smartgroup categories FIRST
+    # This prioritizes hostname smartgroups over webgroups for processing efficiency
+    webgroup_rules_df, hostname_rules_df, unsupported_rules_df = eval_unsupported_webgroups(fqdn_tag_rule_df, fqdn_df)
+    
+    # Create Hostname SmartGroups first (higher priority processing)
+    hostname_smartgroups_df = build_hostname_smartgroups(hostname_rules_df)
+    
+    # Create Webgroups for remaining web traffic (HTTP/HTTPS on standard ports)
     if LOGLEVEL == "DEBUG":
-        fqdn_tag_rule_df.to_csv('{}/clean_fqdn.csv'.format(debug_path))
-    webgroups_df = build_webgroup_df(fqdn_tag_rule_df)
+        webgroup_rules_df.to_csv('{}/clean_fqdn_webgroups.csv'.format(debug_path))
+        hostname_rules_df.to_csv('{}/clean_fqdn_hostnames.csv'.format(debug_path))
+    
+    webgroups_df = build_webgroup_df(webgroup_rules_df)
     export_dataframe_to_tf(webgroups_df[['name','selector']], 'aviatrix_web_group', 'name')
+    
+    # Merge hostname SmartGroups with existing SmartGroups
+    if len(hostname_smartgroups_df) > 0:
+        # Add hostname SmartGroups to the existing smartgroups
+        hostname_sg_for_export = hostname_smartgroups_df[['name', 'selector']].copy()
+        smartgroups_df = pd.concat([smartgroups_df, hostname_sg_for_export], ignore_index=True)
+        # Re-export the updated SmartGroups including hostname ones
+        export_dataframe_to_tf(smartgroups_df, 'aviatrix_smart_group', 'name')
+    
+    # Export final SmartGroups to CSV (including FQDN SmartGroups if any were created)
+    smartgroups_df.to_csv('{}/smartgroups.csv'.format(output_path))
 
-    # Create Internet policies
+    # Create Hostname policies for non-web FQDN traffic (processed before Internet policies)
+    hostname_policies_df = build_hostname_policies(gateways_df, fqdn_df, hostname_smartgroups_df, hostname_rules_df)
+
+    # Create Internet policies (for remaining webgroup traffic)
     internet_rules_df = build_internet_policies(gateways_df, fqdn_df, webgroups_df, any_webgroup_id)
 
     # Create Default Policies
     catch_all_rules_df = build_catch_all_policies(gateways_df, fw_gw_df)
 
-    # Merge all policies and create final policy list
-    if len(fw_policy_df)>0:
-        full_policy_list = pd.concat([l4_dcf_policies_df, internet_rules_df,catch_all_rules_df])
-    else:
-        full_policy_list = pd.concat([internet_rules_df,catch_all_rules_df])
+    # Merge all policies and create final policy list (hostname policies first for efficiency)
+    policy_dataframes = []
+    if len(fw_policy_df) > 0:
+        policy_dataframes.append(l4_dcf_policies_df)
+    if len(hostname_policies_df) > 0:
+        policy_dataframes.append(hostname_policies_df)
+    policy_dataframes.append(internet_rules_df)  # Internet/webgroup policies after hostname policies
+    policy_dataframes.append(catch_all_rules_df)
+    
+    full_policy_list = pd.concat(policy_dataframes, ignore_index=True)
     full_policy_list.to_csv('{}/full_policy_list.csv'.format(output_path))
     full_policy_list['exclude_sg_orchestration'] = True
     full_policy_dict = full_policy_list.to_dict(orient='records')
@@ -636,12 +849,17 @@ def main():
 provider "aviatrix" {
   skip_version_validation = true
 }'''
+
     with open('{}/main.tf'.format(output_path), 'w') as f:
         f.write(main_tf)
 
     # Show final policy counts
-    logging.info("Number of SmartGroups: {}".format(len(smartgroups_df)))
+    hostname_sg_count = len(hostname_smartgroups_df) if len(hostname_smartgroups_df) > 0 else 0
+    hostname_policy_count = len(hostname_policies_df) if len(hostname_policies_df) > 0 else 0
+    
+    logging.info("Number of SmartGroups: {} (including {} hostname SmartGroups)".format(len(smartgroups_df), hostname_sg_count))
     logging.info("Number of WebGroups: {}".format(len(webgroups_df)))
+    logging.info("Number of Hostname Policies: {}".format(hostname_policy_count))
     logging.info("Number of Distributed Cloud Firewall Policies: {}".format(len(full_policy_list)))
 
 LOGLEVEL = ""
