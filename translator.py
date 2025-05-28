@@ -571,8 +571,8 @@ def build_hostname_smartgroups(hostname_rules_df):
     if len(hostname_rules_df) == 0:
         return pd.DataFrame(columns=['name', 'selector'])
     
-    # Group FQDNs by protocol, port, and fqdn_mode for optimization
-    grouped = hostname_rules_df.groupby(['protocol', 'port', 'fqdn_mode'])['fqdn'].apply(list).reset_index()
+    # Group FQDNs by protocol, port, fqdn_mode, and fqdn_tag_name for optimization
+    grouped = hostname_rules_df.groupby(['fqdn_tag_name', 'protocol', 'port', 'fqdn_mode'])['fqdn'].apply(list).reset_index()
     
     hostname_smartgroups = []
     for _, row in grouped.iterrows():
@@ -580,12 +580,13 @@ def build_hostname_smartgroups(hostname_rules_df):
         protocol = row['protocol'].lower()
         port = str(row['port']).lower()  # Handle ALL and other special port values
         mode = row['fqdn_mode']
+        fqdn_tag_name = row['fqdn_tag_name']
         
         # Create a hash for uniqueness when there are many FQDNs
         fqdn_list = row['fqdn']
         fqdn_hash = abs(hash(str(sorted(fqdn_list)))) % 10000
         
-        name = f"fqdn_{protocol}_{port}_{mode}_{fqdn_hash}"
+        name = f"fqdn_{fqdn_tag_name}_{fqdn_hash}"
         
         # Create selector for hostname smartgroup using fqdn field
         if len(fqdn_list) == 1:
