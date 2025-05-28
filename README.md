@@ -61,7 +61,7 @@ The translator script will output several files that can then be used to configu
 
 ```
 aviatrix_distributed_firewall_policy_list.tf.json - Distributed Cloud Firewall Rule list for configuring the Aviatrix Platform
-aviatrix_smart_group.tf.json - Smart Groups Terraform JSON for configuring the Aviatrix Platform (includes both CIDR-based and FQDN-based SmartGroups)
+aviatrix_smart_group.tf.json - Smart Groups Terraform JSON for configuring the Aviatrix Platform (includes both CIDR-based, VPC-based, and FQDN-based SmartGroups)
 aviatrix_web_group.tf.json - Web Groups Terraform JSON for configuring the Aviatrix Platform
 smartgroups.csv - Review the SmartGroup Configuration (includes FQDN SmartGroups for hostname-based filtering)
 full_policy_list.csv - Comprehensive list of all translated policies including FQDN SmartGroup policies
