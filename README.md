@@ -1,13 +1,13 @@
 # Legacy to Distributed Cloud Firewall Policy Translator
 
-This tool migrates legacy stateful firewall and FQDN egress policies to Aviatrix Distributed Cloud Firewall (DCF) using a modern, modular architecture.
+This tool migrates legacy stateful firewall and FQDN egress policies to Aviatrix Distributed Cloud Firewall (DCF) using a modular architecture.
 
 ## Architecture Overview
 
-The translator has been redesigned with a modular architecture for improved maintainability, testing, and extensibility:
+The translator uses a modular architecture for improved maintainability, testing, and extensibility:
 
 ### Core Components
-- **`src/main.py`**: Modern entry point with comprehensive CLI options
+- **`src/main.py`**: Primary entry point with comprehensive CLI options
 - **`src/config/`**: Configuration management and default values
 - **`src/data/`**: Data loading, processing, cleaning, and export functionality
 - **`src/translation/`**: Policy translation engines (L4, FQDN, SmartGroups, WebGroups)
@@ -15,27 +15,44 @@ The translator has been redesigned with a modular architecture for improved main
 - **`src/utils/`**: Utility functions and helper methods
 - **`src/domain/`**: Domain models, constants, and validation logic
 
-### Legacy Compatibility
+### Legacy Script
 - **`translator.py`**: Original monolithic script (maintained for backward compatibility)
 - Both entry points produce identical results
-- **Modern entry point advantages:**
-  - Enhanced CLI options and validation
-  - Improved error handling and logging
-  - Modular architecture for easier maintenance
-  - Comprehensive debugging and analysis features
-  - Better configuration management
 
 ## Quick Start
 
-### Option 1: Modern Entry Point (Recommended)
+### Primary Entry Point
 ```bash
 python src/main.py [options]
 ```
 
-### Option 2: Legacy Entry Point
+### Legacy Entry Point (Alternative)
 ```bash
 python translator.py [options]
 ```
+
+## Important Topology Requirements for DCF 8.0
+
+### Unsupported Topologies
+The following legacy topologies are **not supported** in DCF 8.0:
+
+- **Centralized Egress**: Will be available in DCF 8.1
+- **Standalone FQDN Gateways**: DCF requires "spoke" gateways for operation
+
+### Migration from Standalone FQDN Gateways
+
+If your environment uses standalone FQDN gateways, you must migrate to spoke gateways. The general recommendation is:
+
+1. **Migrate policies first** using this translator tool (policies won't take effect until gateway migration)
+2. **Deploy spoke gateways** alongside existing FQDN gateways
+3. **Switch traffic to spoke gateways**:
+   - Disable the FQDN tag on the legacy gateway
+   - Enable Single IP SNAT on the spoke gateway
+   - This transition will cause a brief traffic outage between disable and re-enable.
+4. **Fallback option**: If needed, disable SNAT and re-enable the FQDN tag
+5. **Complete migration**: When comfortable, decommission the FQDN gateways
+
+> **Note**: Spoke gateways can be deployed in parallel with FQDN gateways to minimize downtime during the transition.
 
 ### 1. Export Legacy Policy Bundle
 Run the export script against your controller to generate a ZIP file containing all legacy policies:
@@ -55,9 +72,9 @@ python3 export_legacy_policy_bundle.py -i <controller_ip> -u <username> [-p <pas
 1. Create required directories: `./input`, `./output`, and optionally `./debug`
 2. Extract the exported policy bundle into the `./input` directory
 3. Obtain the "Any Webgroup" ID from your target controller (available in v7.1+)
-4. Run the translator using either entry point:
+4. Run the translator:
 
-**Modern Entry Point (Recommended):**
+**Primary Entry Point:**
 ```bash
 # Basic translation with default settings
 python src/main.py
@@ -75,7 +92,7 @@ python src/main.py --validate-only --loglevel INFO
 python src/main.py --global-catch-all-action DENY --any-webgroup-id "custom-webgroup-id"
 ```
 
-**Legacy Entry Point:**
+**Legacy Entry Point (Alternative):**
 ```bash
 python translator.py [options]
 ```
@@ -112,9 +129,11 @@ terraform apply
 ```
 
 **Recommendations:**
-- Test in a lab environment first
-- Start with `--global-catch-all-action PERMIT` and switch to `DENY` after validation
-- Use `terraform destroy` for easy rollback if needed
+- **Topology Assessment**: Verify your environment is compatible with DCF 8.0 (see topology requirements above)
+- **Gateway Migration**: If using standalone FQDN gateways, plan for spoke gateway deployment
+- **Testing**: Test in a lab environment first
+- **Catch-All Policy**: Start with `--global-catch-all-action PERMIT` and switch to `DENY` after validation
+- **Rollback Plan**: Use `terraform destroy` for easy rollback if needed
 
 ## Generated Output Files
 
