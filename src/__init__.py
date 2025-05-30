@@ -1,7 +1,7 @@
 """
 Legacy-to-DCF Policy Translator Package.
 
-A modular system for converting legacy Aviatrix firewall policies 
+A modular system for converting legacy Aviatrix firewall policies
 to Distributed Cloud Firewall (DCF) format.
 """
 
@@ -11,6 +11,4 @@ __description__ = "Legacy to DCF Policy Translator"
 
 from .config import TranslationConfig
 
-__all__ = [
-    'TranslationConfig'
-]
+__all__ = ["TranslationConfig"]

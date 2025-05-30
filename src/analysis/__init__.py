@@ -5,15 +5,23 @@ This module contains classes and functions for analyzing FQDN rules,
 generating statistics, and reporting on translation results.
 """
 
-# Make analysis functions available at module level
-from .fqdn_analysis import *
-from .policy_validators import *
-from .translation_reporter import *
+# Import specific classes instead of using star imports
+from .fqdn_analysis import (
+    DomainCompatibilityAnalyzer,
+    FQDNAnalysisResult,
+    FQDNAnalyzer,
+    FQDNCategorizer,
+)
+from .policy_validators import PolicyValidator, ValidationResult
+from .translation_reporter import TranslationReporter, TranslationStats
 
 __all__ = [
-    'FQDNAnalyzer',
-    'FQDNCategorizer', 
-    'DomainCompatibilityAnalyzer',
-    'PolicyValidator',
-    'TranslationReporter'
+    "DomainCompatibilityAnalyzer",
+    "FQDNAnalysisResult",
+    "FQDNAnalyzer",
+    "FQDNCategorizer",
+    "PolicyValidator",
+    "TranslationReporter",
+    "TranslationStats",
+    "ValidationResult",
 ]
