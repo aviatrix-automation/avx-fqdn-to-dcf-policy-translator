@@ -1,0 +1,20 @@
+{
+  "valid_domains": [
+    "*.github.com",
+    "api.example.com",
+    "*",
+    "sub.domain.co.uk",
+    "simple.com",
+    "*.amazonaws.com",
+    "localhost"
+  ],
+  "invalid_domains": [
+    "*github.com",
+    "domain.*",
+    "*.*.domain.com",
+    "*domain*.com",
+    "",
+    "domain .com",
+    "domain..com"
+  ]
+}

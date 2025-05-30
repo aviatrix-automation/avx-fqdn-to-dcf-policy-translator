@@ -1,0 +1,50 @@
+{
+  "expected_webgroups": [
+    {
+      "name": "test-webgroup-tag-webgroup",
+      "selector": {
+        "expressions": [
+          {
+            "type": "domain_names",
+            "domain_names": [
+              "*.github.com",
+              "api.example.com"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "expected_hostname_smartgroups": [
+    {
+      "name": "test-enabled-tag-hostname-sg",
+      "selector": {
+        "expressions": [
+          {
+            "type": "fqdn",
+            "fqdn": "custom.internal.com",
+            "port": {
+              "all": true
+            },
+            "proto": "TCP"
+          },
+          {
+            "type": "fqdn",
+            "fqdn": "*.monitoring.local",
+            "port": {
+              "all": true
+            },
+            "proto": "ANY"
+          }
+        ]
+      }
+    }
+  ],
+  "expected_policy_count": 3,
+  "expected_categorization": {
+    "webgroup_rules": 2,
+    "hostname_rules": 3,
+    "unsupported_rules": 0,
+    "filtered_disabled_rules": 2
+  }
+}

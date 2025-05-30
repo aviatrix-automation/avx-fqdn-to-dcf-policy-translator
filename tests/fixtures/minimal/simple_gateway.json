@@ -1,0 +1,27 @@
+{
+  "return": true,
+  "results": [
+    {
+      "gw_name": "test-gateway",
+      "vpc_name": "test-vpc",
+      "vpc_id": "vpc-12345678",
+      "vpc_region": "us-west-2",
+      "cloud_type": 1,
+      "fqdn_tags": [
+        "test-enabled-tag"
+      ],
+      "egress_control": "Enabled"
+    },
+    {
+      "gw_name": "test-gateway-2",
+      "vpc_name": "test-vpc-2",
+      "vpc_id": "vpc-87654321",
+      "vpc_region": "us-east-1",
+      "cloud_type": 1,
+      "fqdn_tags": [
+        "test-webgroup-tag"
+      ],
+      "egress_control": "Enabled"
+    }
+  ]
+}
