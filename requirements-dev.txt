@@ -1,0 +1,10 @@
+# Development dependencies
+# Install with: pip install -r requirements-dev.txt
+
+# Code quality and type checking
+ruff>=0.1.0
+mypy>=1.0.0
+types-requests
+
+# Include production requirements
+-r requirements.txt

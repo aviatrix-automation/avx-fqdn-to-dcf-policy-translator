@@ -27,113 +27,111 @@ Examples:
   %(prog)s --input-dir ./input --output-dir ./output
   %(prog)s --debug --customer-name "Example Corp"
   %(prog)s --validate-only --loglevel INFO
-        """
+        """,
     )
-    
+
     # Input/Output paths
     parser.add_argument(
-        '--input-dir', 
+        "--input-dir",
         type=str,
-        help="Path to directory containing legacy configuration files (default: ./input)"
+        help="Path to directory containing legacy configuration files (default: ./input)",
     )
     parser.add_argument(
-        '--output-dir',
-        type=str, 
-        help="Path to directory for generated DCF files (default: ./output)"
+        "--output-dir",
+        type=str,
+        help="Path to directory for generated DCF files (default: ./output)",
     )
     parser.add_argument(
-        '--debug-dir',
-        type=str,
-        help="Path to directory for debug files (default: ./debug)"
+        "--debug-dir", type=str, help="Path to directory for debug files (default: ./debug)"
     )
-    
+
     # Processing options
     parser.add_argument(
-        '--debug',
-        action='store_true',
-        help="Enable debug mode with detailed output and debug files"
+        "--debug",
+        action="store_true",
+        help="Enable debug mode with detailed output and debug files",
     )
     parser.add_argument(
-        '--force',
-        action='store_true',
-        help="Force overwrite existing output files"
+        "--force", action="store_true", help="Force overwrite existing output files"
     )
     parser.add_argument(
-        '--validate-only',
-        action='store_true',
-        help="Only validate input files without generating output"
+        "--validate-only",
+        action="store_true",
+        help="Only validate input files without generating output",
     )
-    
+
     # Logging
     parser.add_argument(
-        '--loglevel',
+        "--loglevel",
         default="WARNING",
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
-        help="Set the logging level (default: WARNING)"
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Set the logging level (default: WARNING)",
     )
-    
+
     # DCF configuration
     parser.add_argument(
-        '--internet-sg-id',
+        "--internet-sg-id",
         default="def000ad-0000-0000-0000-000000000001",
-        help="Internet security group ID for DCF policies"
+        help="Internet security group ID for DCF policies",
     )
     parser.add_argument(
-        '--anywhere-sg-id',
+        "--anywhere-sg-id",
         default="def000ad-0000-0000-0000-000000000000",
-        help="Anywhere security group ID for DCF policies"
+        help="Anywhere security group ID for DCF policies",
     )
     parser.add_argument(
-        '--any-webgroup-id',
+        "--any-webgroup-id",
         default="def000ad-0000-0000-0000-000000000002",
-        help="Any webgroup ID for DCF policies"
+        help="Any webgroup ID for DCF policies",
     )
     parser.add_argument(
-        '--default-web-port-ranges',
-        nargs='+',
+        "--default-web-port-ranges",
+        nargs="+",
         default=["80", "443"],
-        help="Default web port ranges for webgroup policies (space separated)"
+        help="Default web port ranges for webgroup policies (space separated)",
     )
     parser.add_argument(
-        '--global-catch-all-action',
-        default='PERMIT',
-        choices=['PERMIT', 'DENY'],
-        help="Global catch-all policy action (default: PERMIT)"
+        "--global-catch-all-action",
+        default="PERMIT",
+        choices=["PERMIT", "DENY"],
+        help="Global catch-all policy action (default: PERMIT)",
     )
-    
+
     # Customer context
-    parser.add_argument(
-        '--customer-name',
-        type=str,
-        help="Customer name for naming context"
-    )
-    
+    parser.add_argument("--customer-name", type=str, help="Customer name for naming context")
+
     return parser.parse_args()
 
 
 def setup_logging(config: TranslationConfig) -> None:
     """Configure logging based on configuration."""
-    log_level = getattr(logging, config.loglevel) if hasattr(config, 'loglevel') else logging.WARNING
-    
+    log_level = (
+        getattr(logging, config.loglevel) if hasattr(config, "loglevel") else logging.WARNING
+    )
+
     # Configure logging format
-    log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     if config.enable_debug:
-        log_format = '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
-    
+        log_format = (
+            "%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s"
+        )
+
     logging.basicConfig(
         level=log_level,
         format=log_format,
         handlers=[
             logging.StreamHandler(),
-            logging.FileHandler(config.output_dir / 'translation.log') if config.output_dir else logging.StreamHandler()
-        ]
+            logging.FileHandler(config.output_dir / "translation.log")
+            if config.output_dir
+            else logging.StreamHandler(),
+        ],
     )
 
 
 def validate_environment(config: TranslationConfig) -> bool:
     """Validate the environment and configuration."""
     logging.info("Validating environment and configuration...")
-    
+
     # Validate configuration
     config_errors = config.validate()
     if config_errors:
@@ -141,14 +139,14 @@ def validate_environment(config: TranslationConfig) -> bool:
         for error in config_errors:
             logging.error(f"  - {error}")
         return False
-    
+
     # Ensure directories exist
     try:
         config.ensure_directories_exist()
     except Exception as e:
         logging.error(f"Failed to create directories: {e}")
         return False
-    
+
     logging.info("Environment validation successful")
     return True
 
@@ -158,152 +156,159 @@ def main() -> int:
     # Parse arguments and create configuration
     args = get_arguments()
     config = TranslationConfig.from_args(args)
-    
+
     # Add additional args to config
-    if hasattr(args, 'loglevel'):
+    if hasattr(args, "loglevel"):
         config.loglevel = args.loglevel
-    if hasattr(args, 'internet_sg_id'):
+    if hasattr(args, "internet_sg_id"):
         config.internet_sg_id = args.internet_sg_id
-    if hasattr(args, 'anywhere_sg_id'):
+    if hasattr(args, "anywhere_sg_id"):
         config.anywhere_sg_id = args.anywhere_sg_id
-    if hasattr(args, 'any_webgroup_id'):
+    if hasattr(args, "any_webgroup_id"):
         config.any_webgroup_id = args.any_webgroup_id
-    if hasattr(args, 'default_web_port_ranges'):
+    if hasattr(args, "default_web_port_ranges"):
         config.default_web_port_ranges = args.default_web_port_ranges
-    if hasattr(args, 'global_catch_all_action'):
+    if hasattr(args, "global_catch_all_action"):
         config.global_catch_all_action = args.global_catch_all_action
-    
+
     # Setup logging
     setup_logging(config)
-    
+
     logging.info("Starting Legacy-to-DCF Policy Translation")
     logging.info(f"Input directory: {config.input_dir}")
     logging.info(f"Output directory: {config.output_dir}")
     logging.info(f"Debug mode: {config.enable_debug}")
-    
+
     # Validate environment
     if not validate_environment(config):
         logging.error("Environment validation failed")
         return 1
-    
+
     # If validate-only mode, stop here
     if config.validate_only:
         logging.info("Validation-only mode: Environment checks passed")
         return 0
-    
+
     try:
         # Import modular components
-        from data.loaders import ConfigurationLoader
-        from data.processors import DataProcessor
-        from data.exporters import DataExporter
-        from translation.policies import L4PolicyBuilder, InternetPolicyBuilder, CatchAllPolicyBuilder, L4PolicyHandler
-        from translation.fqdn_handlers import FQDNHandler
-        from translation.smartgroups import SmartGroupManager
+
+        import pandas as pd
+
         from analysis.fqdn_analysis import FQDNAnalyzer
         from analysis.policy_validators import PolicyValidator
         from analysis.translation_reporter import TranslationReporter
-        from utils.data_processing import (
-            translate_port_to_port_range, pretty_parse_vpc_name, 
-            deduplicate_policy_names, is_ipv4
+        from data.exporters import DataExporter
+        from data.loaders import ConfigurationLoader
+        from data.processors import DataProcessor
+        from translation.fqdn_handlers import FQDNHandler
+        from translation.policies import (
+            L4PolicyHandler,
         )
-        import pandas as pd
-        import json
-        
+        from translation.smartgroups import SmartGroupManager
+        from utils.data_processing import (
+            deduplicate_policy_names,
+            pretty_parse_vpc_name,
+            translate_port_to_port_range,
+        )
+
         logging.info("Loading legacy configuration files...")
-        
+
         # Initialize data loader and load all configuration
         loader = ConfigurationLoader(config)
         config_data = loader.load_all_configuration()
-        
+
         # Extract DataFrames from loaded data
-        fw_tag_df = config_data.get('firewall_tag', pd.DataFrame())
-        fw_policy_df = config_data.get('firewall_policy', pd.DataFrame())
-        fw_gw_df = config_data.get('firewall', pd.DataFrame())
-        fqdn_tag_rule_df = config_data.get('fqdn_tag_rule', pd.DataFrame())
-        fqdn_df = config_data.get('fqdn', pd.DataFrame())
-        gateways_df = config_data.get('gateways', pd.DataFrame())
-        
+        fw_tag_df = config_data.get("firewall_tag", pd.DataFrame())
+        fw_policy_df = config_data.get("firewall_policy", pd.DataFrame())
+        # Remove unused variable assignment
+        # fw_gw_df = config_data.get("firewall", pd.DataFrame())
+        fqdn_tag_rule_df = config_data.get("fqdn_tag_rule", pd.DataFrame())
+        fqdn_df = config_data.get("fqdn", pd.DataFrame())
+        gateways_df = config_data.get("gateways", pd.DataFrame())
+
         # Initialize data processor and process policies
         processor = DataProcessor(config)
-        
+
         # Process L4 policies if available
         if len(fw_policy_df) > 0:
             logging.info("Processing L4 firewall policies...")
-            
+
             # Validate and clean policies
-            fw_policy_df, fw_tag_df, stateless_alerts = processor.process_firewall_policies(fw_policy_df, fw_tag_df)
-            
+            fw_policy_df, fw_tag_df, stateless_alerts = processor.process_firewall_policies(
+                fw_policy_df, fw_tag_df
+            )
+
             # Update dataframes with processed data (already done by unpacking above)
             # fw_policy_df = validation_result.cleaned_policies
             # fw_tag_df = validation_result.cleaned_tags
-            
+
             if config.enable_debug:
-                fw_policy_df.to_csv(config.debug_dir / 'clean_policies.csv')
+                fw_policy_df.to_csv(config.debug_dir / "clean_policies.csv")
         else:
             validation_result = None
-        
+
         # Initialize SmartGroup manager and create SmartGroups
         logging.info("Building SmartGroups...")
         sg_manager = SmartGroupManager(config)
         smartgroup_results = sg_manager.create_all_smartgroups(fw_policy_df, fw_tag_df, gateways_df)
-        smartgroups_df = smartgroup_results.get('standard_smartgroups', pd.DataFrame())
-        
+        smartgroups_df = smartgroup_results.get("standard_smartgroups", pd.DataFrame())
+
         # Initialize L4 policy handler and create L4 policies
         l4_dcf_policies_df = pd.DataFrame()
         if len(fw_policy_df) > 0:
             logging.info("Building L4 DCF policies...")
             l4_handler = L4PolicyHandler(config)
             l4_dcf_policies_df = l4_handler.build_l4_policies(fw_policy_df)
-            l4_dcf_policies_df['web_groups'] = None
-        
+            l4_dcf_policies_df["web_groups"] = None
+
         # Initialize FQDN handler and process FQDN rules
         logging.info("Processing FQDN rules...")
         fqdn_handler = FQDNHandler(
             config.default_web_port_ranges,
             translate_port_to_port_range,
             pretty_parse_vpc_name,
-            deduplicate_policy_names
+            deduplicate_policy_names,
         )
-        
+
         # Process FQDN rules
-        webgroup_rules_df, hostname_rules_df, unsupported_rules_df = fqdn_handler.process_fqdn_rules(
-            fqdn_tag_rule_df, fqdn_df
+        webgroup_rules_df, hostname_rules_df, unsupported_rules_df = (
+            fqdn_handler.process_fqdn_rules(fqdn_tag_rule_df, fqdn_df)
         )
-        
+
         # Create hostname SmartGroups
         hostname_smartgroups_df = fqdn_handler.build_hostname_smartgroups(hostname_rules_df)
-        
+
         # Create WebGroups
         if config.enable_debug:
-            webgroup_rules_df.to_csv(config.debug_dir / 'clean_fqdn_webgroups.csv')
-            hostname_rules_df.to_csv(config.debug_dir / 'clean_fqdn_hostnames.csv')
-        
+            webgroup_rules_df.to_csv(config.debug_dir / "clean_fqdn_webgroups.csv")
+            hostname_rules_df.to_csv(config.debug_dir / "clean_fqdn_hostnames.csv")
+
         webgroups_df = fqdn_handler.build_webgroups(webgroup_rules_df)
-        
+
         # Merge hostname SmartGroups with existing SmartGroups
         if len(hostname_smartgroups_df) > 0:
-            hostname_sg_for_export = hostname_smartgroups_df[['name', 'selector']].copy()
+            hostname_sg_for_export = hostname_smartgroups_df[["name", "selector"]].copy()
             smartgroups_df = pd.concat([smartgroups_df, hostname_sg_for_export], ignore_index=True)
-        
+
         # Export SmartGroups and WebGroups to CSV
-        smartgroups_df.to_csv(config.get_output_file_path('smart_groups_csv'))
-        
+        smartgroups_df.to_csv(config.get_output_file_path("smart_groups_csv"))
+
         # Create policies
         logging.info("Building hostname policies...")
         hostname_policies_df = fqdn_handler.build_hostname_policies(
             gateways_df, fqdn_df, hostname_smartgroups_df, hostname_rules_df
         )
-        
+
         logging.info("Building internet policies...")
-        # For now, use a placeholder for internet policies - this would need the build_internet_policies function
+        # For now, use a placeholder for internet policies
         # TODO: Move build_internet_policies to FQDN handler or create a separate policy builder
         internet_rules_df = pd.DataFrame()  # Placeholder
-        
+
         logging.info("Building catch-all policies...")
-        # For now, use a placeholder for catch-all policies - this would need the build_catch_all_policies function  
+        # For now, use a placeholder for catch-all policies
         # TODO: Move build_catch_all_policies to L4 handler or create a separate policy builder
         catch_all_rules_df = pd.DataFrame()  # Placeholder
-        
+
         # Merge all policies
         logging.info("Merging all policies...")
         policy_dataframes = []
@@ -315,75 +320,79 @@ def main() -> int:
             policy_dataframes.append(internet_rules_df)
         if len(catch_all_rules_df) > 0:
             policy_dataframes.append(catch_all_rules_df)
-        
+
         # Create final policy list
         if policy_dataframes:
             full_policy_list = pd.concat(policy_dataframes, ignore_index=True)
             full_policy_list = deduplicate_policy_names(full_policy_list)
         else:
             full_policy_list = pd.DataFrame()
-        
+
         # Prepare output data
         output_data = {
-            'smartgroups_df': smartgroups_df,
-            'webgroups_df': webgroups_df,
-            'hostname_smartgroups_df': hostname_smartgroups_df,
-            'hostname_policies_df': hostname_policies_df,
-            'l4_dcf_policies_df': l4_dcf_policies_df,
-            'internet_rules_df': internet_rules_df,
-            'catch_all_rules_df': catch_all_rules_df,
-            'full_policy_list': full_policy_list,
-            'unsupported_rules_df': unsupported_rules_df
+            "smartgroups_df": smartgroups_df,
+            "webgroups_df": webgroups_df,
+            "hostname_smartgroups_df": hostname_smartgroups_df,
+            "hostname_policies_df": hostname_policies_df,
+            "l4_dcf_policies_df": l4_dcf_policies_df,
+            "internet_rules_df": internet_rules_df,
+            "catch_all_rules_df": catch_all_rules_df,
+            "full_policy_list": full_policy_list,
+            "unsupported_rules_df": unsupported_rules_df,
         }
-        
+
         # Initialize data exporter and export all outputs
         logging.info("Exporting translation results...")
         exporter = DataExporter(config)
-        exported_files = exporter.export_all_outputs(output_data)
-        
+        # Remove unused variable assignment
+        # exported_files = exporter.export_all_outputs(output_data)
+        exporter.export_all_outputs(output_data)
+
         # Run analysis if enabled
         if config.enable_debug:
             logging.info("Running FQDN analysis...")
             fqdn_analyzer = FQDNAnalyzer()
             fqdn_analysis = fqdn_analyzer.analyze_fqdn_rules(fqdn_tag_rule_df, fqdn_df)
-            
+
             # Run policy validation
             logging.info("Running policy validation...")
             validator = PolicyValidator()
-            
+
             # Create a comprehensive validation result
-            validation_result = validator.perform_comprehensive_validation(
-                fw_policy_df, fw_tag_df
-            )
-            
+            validation_result = validator.perform_comprehensive_validation(fw_policy_df, fw_tag_df)
+
             # Generate comprehensive report
             logging.info("Generating analysis report...")
             reporter = TranslationReporter(config.output_dir)
             report = reporter.generate_comprehensive_report(
                 output_data, fqdn_analysis, validation_result
             )
-            
+
             # Export reports
             reporter.export_report_to_json(report)
             reporter.export_summary_to_text(report)
-        
+
         # Show final counts
         hostname_sg_count = len(hostname_smartgroups_df) if len(hostname_smartgroups_df) > 0 else 0
         hostname_policy_count = len(hostname_policies_df) if len(hostname_policies_df) > 0 else 0
-        
-        logging.info(f"Translation completed successfully!")
-        logging.info(f"SmartGroups created: {len(smartgroups_df)} (including {hostname_sg_count} hostname SmartGroups)")
+
+        logging.info("Translation completed successfully!")
+        smartgroups_total = len(smartgroups_df)
+        logging.info(
+            f"SmartGroups created: {smartgroups_total} "
+            f"(including {hostname_sg_count} hostname SmartGroups)"
+        )
         logging.info(f"WebGroups created: {len(webgroups_df)}")
         logging.info(f"Hostname Policies created: {hostname_policy_count}")
         logging.info(f"Total DCF Policies created: {len(full_policy_list)}")
-        
+
         return 0
-        
+
     except Exception as e:
         logging.error(f"Translation failed: {e}", exc_info=True)
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     exit_code = main()
     sys.exit(exit_code)
