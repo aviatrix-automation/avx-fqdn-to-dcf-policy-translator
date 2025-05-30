@@ -28,6 +28,33 @@ class PolicyBuilder:
         """Create Terraform reference for a SmartGroup."""
         return f"${{aviatrix_smart_group.{sg_name}.id}}"
 
+    def _deduplicate_policy_names(self, policies_df: pd.DataFrame) -> pd.DataFrame:
+        """Deduplicate policy names by adding numeric suffixes."""
+        if len(policies_df) == 0:
+            return policies_df
+
+        name_counts: Dict[str, int] = {}
+        new_names = []
+
+        for name in policies_df["name"]:
+            if name in name_counts:
+                name_counts[name] += 1
+                new_names.append(f"{name}_{name_counts[name]}")
+            else:
+                name_counts[name] = 0
+                new_names.append(name)
+
+        policies_df = policies_df.copy()
+        policies_df["name"] = new_names
+        return policies_df
+
+    def _add_priorities(self, policies_df: pd.DataFrame, base_priority: int) -> pd.DataFrame:
+        """Add priority values to policies."""
+        policies_df = policies_df.reset_index(drop=True)
+        policies_df.index = policies_df.index + base_priority
+        policies_df["priority"] = policies_df.index
+        return policies_df
+
 
 class L4PolicyBuilder(PolicyBuilder):
     """Builds L4/stateful firewall DCF policies."""
@@ -112,33 +139,6 @@ class L4PolicyBuilder(PolicyBuilder):
 
         logging.info(f"Created {len(policy_df)} L4 DCF policies")
         return policy_df
-
-    def _deduplicate_policy_names(self, policies_df: pd.DataFrame) -> pd.DataFrame:
-        """Deduplicate policy names by adding numeric suffixes."""
-        if len(policies_df) == 0:
-            return policies_df
-
-        name_counts: Dict[str, int] = {}
-        new_names = []
-
-        for name in policies_df["name"]:
-            if name in name_counts:
-                name_counts[name] += 1
-                new_names.append(f"{name}_{name_counts[name]}")
-            else:
-                name_counts[name] = 0
-                new_names.append(name)
-
-        policies_df = policies_df.copy()
-        policies_df["name"] = new_names
-        return policies_df
-
-    def _add_priorities(self, policies_df: pd.DataFrame, base_priority: int) -> pd.DataFrame:
-        """Add priority values to policies."""
-        policies_df = policies_df.reset_index(drop=True)
-        policies_df.index = policies_df.index + base_priority
-        policies_df["priority"] = policies_df.index
-        return policies_df
 
 
 class InternetPolicyBuilder(PolicyBuilder):
@@ -456,7 +456,7 @@ class InternetPolicyBuilder(PolicyBuilder):
         internet_policies = internet_policies.reset_index(drop=True)
 
         # Deduplicate policy names
-        internet_policies = self._deduplicate_policy_names(internet_policies)  # type: ignore[attr-defined]
+        internet_policies = self._deduplicate_policy_names(internet_policies)
 
         # Add priorities (internet policies start at 2000)
         internet_policies.index = internet_policies.index + POLICY_PRIORITIES["internet_policies"]
@@ -782,7 +782,7 @@ class HostnamePolicyBuilder(PolicyBuilder):
                 hostname_policies_df, "name"
             )
             # Deduplicate policy names
-            hostname_policies_df = self._deduplicate_policy_names(hostname_policies_df)  # type: ignore[attr-defined]
+            hostname_policies_df = self._deduplicate_policy_names(hostname_policies_df)
             # Add priorities - hostname policies get priority 1000+
             hostname_policies_df = hostname_policies_df.reset_index(drop=True)
             hostname_policies_df.index = hostname_policies_df.index + 1000
