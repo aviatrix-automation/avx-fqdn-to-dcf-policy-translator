@@ -203,6 +203,8 @@ def main() -> int:
         from translation.fqdn_handlers import FQDNHandler
         from translation.policies import (
             L4PolicyHandler,
+            build_catch_all_policies,
+            build_internet_policies,
         )
         from translation.smartgroups import SmartGroupManager
         from utils.data_processing import (
@@ -220,8 +222,7 @@ def main() -> int:
         # Extract DataFrames from loaded data
         fw_tag_df = config_data.get("firewall_tag", pd.DataFrame())
         fw_policy_df = config_data.get("firewall_policy", pd.DataFrame())
-        # Remove unused variable assignment
-        # fw_gw_df = config_data.get("firewall", pd.DataFrame())
+        fw_gw_df = config_data.get("firewall", pd.DataFrame())
         fqdn_tag_rule_df = config_data.get("fqdn_tag_rule", pd.DataFrame())
         fqdn_df = config_data.get("fqdn", pd.DataFrame())
         gateways_df = config_data.get("gateways", pd.DataFrame())
@@ -267,7 +268,7 @@ def main() -> int:
             config.default_web_port_ranges,
             translate_port_to_port_range,
             pretty_parse_vpc_name,
-            deduplicate_policy_names,
+            deduplicate_policy_names
         )
 
         # Process FQDN rules
@@ -300,14 +301,24 @@ def main() -> int:
         )
 
         logging.info("Building internet policies...")
-        # For now, use a placeholder for internet policies
-        # TODO: Move build_internet_policies to FQDN handler or create a separate policy builder
-        internet_rules_df = pd.DataFrame()  # Placeholder
+        internet_rules_df = build_internet_policies(
+            gateways_df,
+            fqdn_df,
+            webgroups_df,
+            config.any_webgroup_id,
+            config.internet_sg_id,
+            config.anywhere_sg_id,
+            config.default_web_port_ranges,
+        )
 
         logging.info("Building catch-all policies...")
-        # For now, use a placeholder for catch-all policies
-        # TODO: Move build_catch_all_policies to L4 handler or create a separate policy builder
-        catch_all_rules_df = pd.DataFrame()  # Placeholder
+        catch_all_rules_df = build_catch_all_policies(
+            gateways_df,
+            fw_gw_df,
+            config.internet_sg_id,
+            config.anywhere_sg_id,
+            config.global_catch_all_action,
+        )
 
         # Merge all policies
         logging.info("Merging all policies...")

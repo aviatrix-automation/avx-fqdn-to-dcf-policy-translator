@@ -25,7 +25,7 @@ from config import TranslationConfig
 from data.processors import DataCleaner
 
 # Configure pandas to avoid future warnings about downcasting
-pd.set_option('future.no_silent_downcasting', True)
+pd.set_option("future.no_silent_downcasting", True)
 
 # DCF 8.0 SNI domain validation regex pattern
 DCF_SNI_DOMAIN_PATTERN = re.compile(r"^(\*|\*\.[-A-Za-z0-9_.]+|[-A-Za-z0-9_.]+)$")

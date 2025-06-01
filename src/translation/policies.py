@@ -14,7 +14,7 @@ import pandas as pd
 from config import TranslationConfig
 from config.defaults import POLICY_PRIORITIES
 from data.processors import DataCleaner
-from utils.data_processing import is_ipv4, translate_port_to_port_range
+from utils.data_processing import is_ipv4, pretty_parse_vpc_name, translate_port_to_port_range
 
 
 class PolicyBuilder:
@@ -219,6 +219,9 @@ class InternetPolicyBuilder(PolicyBuilder):
 
     def _get_egress_vpcs(self, gateways_df: pd.DataFrame) -> pd.DataFrame:
         """Get egress VPCs (non-HAGW with NAT enabled)."""
+        if len(gateways_df) == 0:
+            return pd.DataFrame()
+
         egress_vpcs = gateways_df[
             (gateways_df["is_hagw"] == "no") & (gateways_df["enable_nat"] == "yes")
         ].drop_duplicates(subset=["vpc_id", "vpc_region", "account_name"])
@@ -267,7 +270,7 @@ class InternetPolicyBuilder(PolicyBuilder):
         )
 
         egress_vpcs_with_enabled_tags = egress_vpcs_with_enabled_tags[
-            egress_vpcs_with_enabled_tags["fqdn_enabled"]
+            egress_vpcs_with_enabled_tags["fqdn_enabled"].fillna(False) == True
         ]
         egress_vpcs_with_enabled_tags = egress_vpcs_with_enabled_tags.rename(
             columns={"fqdn_tag": "fqdn_tag_name"}
@@ -335,7 +338,7 @@ class InternetPolicyBuilder(PolicyBuilder):
         )
 
         egress_vpcs_with_enabled_tags = egress_vpcs_with_enabled_tags[
-            egress_vpcs_with_enabled_tags["fqdn_enabled"]
+            egress_vpcs_with_enabled_tags["fqdn_enabled"].fillna(False) == True
         ]
 
         fqdn_tag_default_policies = (
@@ -487,6 +490,19 @@ class CatchAllPolicyBuilder(PolicyBuilder):
             DataFrame with catch-all policies
         """
         logging.info("Building catch-all policies")
+
+        # Handle empty input - still create global catch-all policy
+        if len(gateways_df) == 0:
+            global_catch_all = self._build_global_catch_all()
+            global_catch_all["web_groups"] = None
+            global_catch_all["port_ranges"] = None
+            global_catch_all["protocol"] = "ANY"
+            global_catch_all["logging"] = True
+            global_catch_all = global_catch_all.reset_index(drop=True)
+            global_catch_all.index = global_catch_all.index + 3000
+            global_catch_all["priority"] = global_catch_all.index
+            logging.info(f"Created {len(global_catch_all)} catch-all policies (global only)")
+            return global_catch_all
 
         # Remove HAGWs
         gateways_df = gateways_df[gateways_df["is_hagw"] == "no"]
@@ -710,7 +726,7 @@ class HostnamePolicyBuilder(PolicyBuilder):
             fqdn_df, on="fqdn_tag", how="left"
         )
         egress_vpcs_with_hostname_tags = egress_vpcs_with_hostname_tags[
-            egress_vpcs_with_hostname_tags["fqdn_enabled"]
+            egress_vpcs_with_hostname_tags["fqdn_enabled"].fillna(False) == True
         ]
         egress_vpcs_with_hostname_tags = egress_vpcs_with_hostname_tags.rename(
             columns={"fqdn_tag": "fqdn_tag_name"}

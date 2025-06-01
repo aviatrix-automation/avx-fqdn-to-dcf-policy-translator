@@ -261,7 +261,7 @@ class TranslationReporter:
                     f.write(
                         f"Generated: {report['report_metadata'].get('generated_at', 'Unknown')}\\n"
                     )
-                    version = report['report_metadata'].get('report_version', 'Unknown')
+                    version = report["report_metadata"].get("report_version", "Unknown")
                     f.write(f"Version: {version}\\n\\n")
 
                 # Translation summary
@@ -294,7 +294,7 @@ class TranslationReporter:
                     dcf_breakdown = report["fqdn_analysis"].get("dcf_translation_breakdown", {})
                     f.write("\\nDCF Translation:\\n")
                     f.write(f"  WebGroup rules: {dcf_breakdown.get('webgroup_rules', 0)}\\n")
-                    hostname_sg_rules = dcf_breakdown.get('hostname_smartgroup_rules', 0)
+                    hostname_sg_rules = dcf_breakdown.get("hostname_smartgroup_rules", 0)
                     f.write(f"  Hostname SmartGroup rules: {hostname_sg_rules}\\n")
                     f.write(f"  Unsupported rules: {dcf_breakdown.get('unsupported_rules', 0)}\\n")
                     f.write("\\n")
@@ -305,10 +305,10 @@ class TranslationReporter:
                     f.write("-" * 20 + "\\n")
 
                     validation_summary = report["validation_analysis"].get("validation_summary", {})
-                    total_policies = validation_summary.get('total_policies_analyzed', 0)
+                    total_policies = validation_summary.get("total_policies_analyzed", 0)
                     f.write(f"Total policies analyzed: {total_policies}\\n")
                     f.write(f"Issues found: {validation_summary.get('total_issues_found', 0)}\\n")
-                    success_rate = validation_summary.get('validation_success_rate', 0)
+                    success_rate = validation_summary.get("validation_success_rate", 0)
                     f.write(f"Success rate: {success_rate:.2%}\\n")
 
                     issue_breakdown = report["validation_analysis"].get("issue_breakdown", {})

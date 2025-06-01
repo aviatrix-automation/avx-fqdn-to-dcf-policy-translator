@@ -42,6 +42,14 @@ class TranslationConfig:
     dcf_constraints: Dict[str, Any] = field(default_factory=lambda: DCF_CONSTRAINTS.copy())
     policy_priorities: Dict[str, int] = field(default_factory=lambda: POLICY_PRIORITIES.copy())
 
+    # DCF-specific configuration
+    internet_sg_id: str = "def000ad-0000-0000-0000-000000000001"
+    anywhere_sg_id: str = "def000ad-0000-0000-0000-000000000000"
+    any_webgroup_id: str = "def000ad-0000-0000-0000-000000000002"
+    default_web_port_ranges: List[str] = field(default_factory=lambda: ["80", "443"])
+    global_catch_all_action: str = "PERMIT"
+    loglevel: str = "WARNING"
+
     # Optional customer/organization context
     customer_name: Optional[str] = None
     organization_name: Optional[str] = None

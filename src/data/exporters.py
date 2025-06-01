@@ -237,7 +237,7 @@ class ReportExporter:
         summary: Dict[str, Any] = {
             "input_summary": {},
             "output_summary": {},
-            "translation_stats": {}
+            "translation_stats": {},
         }
 
         # Input summary
