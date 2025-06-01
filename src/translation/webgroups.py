@@ -178,9 +178,7 @@ class WebGroupManager:
 
         if len(valid_webgroups) < len(webgroups_df):
             removed_count = len(webgroups_df) - len(valid_webgroups)
-            logging.warning(
-                f"Removed {removed_count} WebGroups due to constraint violations"
-            )
+            logging.warning(f"Removed {removed_count} WebGroups due to constraint violations")
 
         return valid_webgroups
 
