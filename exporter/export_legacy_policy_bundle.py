@@ -19,6 +19,7 @@ Author: Aviatrix Systems
 import argparse
 import getpass
 import requests
+from requests import Session
 import json
 import zipfile
 import io
@@ -44,6 +45,9 @@ def get_arguments():
             - output: Output ZIP file name (default: 'legacy_policy_bundle.zip')
             - any_web: Flag to download Any-Web webgroup ID (requires v7.1+)
             - vpc_routes: Flag to include VPC route table details
+            - copilot_ip: CoPilot IP address (optional, will auto-discover if not provided)
+            - skip_copilot: Skip CoPilot integration entirely
+            - copilot_required: Fail if CoPilot data cannot be retrieved
             - cid: Manually provided CID to skip login
     """
     # Creates argument parser object
@@ -51,6 +55,7 @@ def get_arguments():
         description='Collects Controller IP, username, and password.')
     parser.add_argument('-i', '--controller_ip',
                         help='Controller IP address', required=True)
+    parser.add_argument('--copilot-ip', help='CoPilot IP address (optional, will auto-discover if not provided)')
     parser.add_argument('-u', '--username', help='Username', required=False)
     parser.add_argument('-p', '--password', help='Password', required=False)
     parser.add_argument('-o', '--output', help='Output file name',
@@ -58,7 +63,11 @@ def get_arguments():
     parser.add_argument(
         '-w', '--any_web', help='Download the Any Webgroup ID. Controller version must be v7.1 or greater', action='store_true')
     parser.add_argument('-r', '--vpc_routes', help='Get route table details for VPCs. Used in translator to add rules for peering connections and VPN gateways if migrating those elements to AVX transit.', action='store_true')
-    parser.add_argument('-c', '--cid', help='Manually provide CID.', default=None)
+    parser.add_argument('--skip-copilot', action='store_true',
+                        help='Skip CoPilot integration entirely')
+    parser.add_argument('--copilot-required', action='store_true',
+                        help='Fail if CoPilot data cannot be retrieved')
+    parser.add_argument('--cid', help='Manually provide CID.', default=None)
 
     args = parser.parse_args()
 
@@ -119,6 +128,135 @@ def login(controller_ip, controller_user, controller_password):
     # Return the CID (session token) from the response for subsequent API calls
     return response.json()["CID"]
 
+def get_copilot_ip(controller_ip, cid):
+    """
+    Get CoPilot IP from controller with graceful failure handling.
+    
+    This function attempts to retrieve the CoPilot IP address associated with
+    the controller. It handles various failure scenarios gracefully.
+    
+    Args:
+        controller_ip (str): IP address or hostname of the Aviatrix controller
+        cid (str): Session token from login
+        
+    Returns:
+        str or None: CoPilot IP address if found, None if not available or on error
+    """
+    try:
+        response = aviatrix_api_call(controller_ip, "/v2/api", cid, 
+                                   params={'action': 'get_copilot_association_status'})
+        data = response.json()
+        
+        # Check if CoPilot is associated
+        if 'results' not in data:
+            print("INFO: No CoPilot association found on this controller")
+            return None
+            
+        results = data['results']
+        
+        # Check for valid IP
+        if results.get('public_ip') and results['public_ip'] != "":
+            print(f"Found CoPilot at public IP: {results['public_ip']}")
+            return results['public_ip']
+        elif results.get('ip') and results['ip'] != "":
+            print(f"Found CoPilot at private IP: {results['ip']}")
+            return results['ip']
+        else:
+            print("INFO: CoPilot is associated but no valid IP found")
+            return None
+            
+    except Exception as e:
+        print(f"INFO: Could not retrieve CoPilot IP: {str(e)}")
+        return None
+
+
+def login_copilot(copilot_ip, username, password):
+    """
+    Login to CoPilot with timeout and error handling.
+    
+    This function attempts to authenticate with CoPilot and returns a session
+    object that can be used for subsequent API calls.
+    
+    Args:
+        copilot_ip (str): IP address or hostname of the CoPilot
+        username (str): Username for authentication
+        password (str): Password for authentication
+        
+    Returns:
+        requests.Session or None: Authenticated session if successful, None on failure
+    """
+    if not copilot_ip:
+        return None
+        
+    try:
+        login_payload = {"username": username, "password": password}
+        session = requests.Session()
+        
+        # Set reasonable timeout
+        response = session.post(f"https://{copilot_ip}/api/login", 
+                              json=login_payload, 
+                              verify=False, 
+                              timeout=10)
+        
+        if response.status_code == 200:
+            print(f"✓ Successfully authenticated with CoPilot at {copilot_ip}")
+            return session
+        else:
+            print(f"INFO: CoPilot authentication failed (HTTP {response.status_code})")
+            return None
+            
+    except requests.exceptions.Timeout:
+        print(f"INFO: CoPilot connection timed out at {copilot_ip}")
+        return None
+    except requests.exceptions.ConnectionError:
+        print(f"INFO: Could not connect to CoPilot at {copilot_ip}")
+        return None
+    except Exception as e:
+        print(f"INFO: CoPilot login failed: {str(e)}")
+        return None
+
+
+def get_copilot_app_domains(copilot_session, copilot_ip):
+    """
+    Fetch app-domains data from CoPilot with error handling.
+    
+    This function retrieves microsegmentation app-domains data from the CoPilot
+    API endpoint with proper error handling and timeouts.
+    
+    Args:
+        copilot_session (requests.Session): Authenticated CoPilot session
+        copilot_ip (str): IP address or hostname of the CoPilot
+        
+    Returns:
+        dict or None: App-domains data if successful, None on failure
+    """
+    if not copilot_session or not copilot_ip:
+        return None
+        
+    try:
+        response = copilot_session.get(
+            f"https://{copilot_ip}/api/microseg/app-domains/poll-resources?cached=true",
+            verify=False,
+            timeout=30  # Longer timeout for potentially large dataset
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            if isinstance(data, list):
+                print(f"✓ Successfully retrieved CoPilot app-domains data ({len(data)} items)")
+            else:
+                print("✓ Successfully retrieved CoPilot app-domains data")
+            return data
+        else:
+            print(f"INFO: CoPilot app-domains API returned HTTP {response.status_code}")
+            return None
+            
+    except requests.exceptions.Timeout:
+        print("INFO: CoPilot app-domains API request timed out")
+        return None
+    except Exception as e:
+        print(f"INFO: Failed to retrieve CoPilot app-domains: {str(e)}")
+        return None
 
 def aviatrix_api_call(controller_ip, path, cid, params={}, stream=False):
     """
@@ -295,9 +433,10 @@ def main():
     This function:
     1. Parses command line arguments
     2. Authenticates with the Aviatrix controller (or uses provided CID)
-    3. Exports gateway details and optionally VPC routes and Any-Web webgroup
-    4. Downloads Terraform configurations for all legacy firewall resources
-    5. Bundles everything into a ZIP file for use with the translator
+    3. Optionally integrates with CoPilot to retrieve microsegmentation data
+    4. Exports gateway details and optionally VPC routes and Any-Web webgroup
+    5. Downloads Terraform configurations for all legacy firewall resources
+    6. Bundles everything into a ZIP file for use with the translator
     
     The exported bundle contains all necessary information for the translator.py
     script to convert legacy policies to Distributed Cloud Firewall format.
@@ -313,6 +452,51 @@ def main():
     else:
         cid = args.cid
 
+    # CoPilot integration with graceful failure handling
+    copilot_data_retrieved = False
+    
+    if not args.skip_copilot:
+        print("\n=== CoPilot Integration ===")
+        
+        # Step 1: Get CoPilot IP
+        copilot_ip = getattr(args, 'copilot_ip', None)
+        if not copilot_ip:
+            print("Auto-discovering CoPilot IP from controller...")
+            copilot_ip = get_copilot_ip(args.controller_ip, cid)
+        else:
+            print(f"Using provided CoPilot IP: {copilot_ip}")
+        
+        # Step 2: Login to CoPilot
+        copilot_session = None
+        if copilot_ip:
+            print(f"Attempting to connect to CoPilot at {copilot_ip}...")
+            copilot_session = login_copilot(copilot_ip, args.username, args.password)
+        
+        # Step 3: Get app-domains data
+        if copilot_session:
+            print("Retrieving microsegmentation app-domains data...")
+            app_domains_data = get_copilot_app_domains(copilot_session, copilot_ip)
+            
+            if app_domains_data:
+                with open('copilot_app_domains.json', 'w') as f:
+                    json.dump(app_domains_data, f, indent=1)
+                copilot_data_retrieved = True
+                print("✓ CoPilot app-domains data successfully retrieved")
+            else:
+                print("⚠ Could not retrieve CoPilot app-domains data")
+        else:
+            print("⚠ CoPilot authentication failed")
+    else:
+        print("INFO: CoPilot integration skipped (--skip-copilot flag)")
+    
+    # Handle required CoPilot scenario
+    if getattr(args, 'copilot_required', False) and not copilot_data_retrieved:
+        print("ERROR: CoPilot data is required but could not be retrieved")
+        print("Use --skip-copilot to continue without CoPilot data")
+        exit(1)
+
+    print("\n=== Controller Data Export ===")
+    
     # Get gateway details using the CID - this provides VPC and gateway information
     gateway_details = get_gateway_details(args.controller_ip, cid)
 
@@ -343,13 +527,17 @@ def main():
     for resource in resources:
         get_tf_resources(args.controller_ip, resource, cid)
 
+    print("\n=== Creating Policy Bundle ===")
+    
     # Bundle all the files into a ZIP and delete the original files to clean up
     # Determine which additional files to include based on command line options
     other_files = ["gateway_details.json"]
     if args.any_web == True:
-        other_files = other_files + ["any_webgroup.json"]
+        other_files.append("any_webgroup.json")
     if args.vpc_routes == True:
-        other_files = other_files + ["vpc_route_tables.json"]
+        other_files.append("vpc_route_tables.json")
+    if copilot_data_retrieved:  # Only include if successfully retrieved
+        other_files.append("copilot_app_domains.json")
     
     # Create the complete file list for the ZIP bundle
     files = ["{}.tf".format(x) for x in resources] + other_files
@@ -358,18 +546,28 @@ def main():
     zf = zipfile.ZipFile(args.output, mode="w")
     try:
         for file_name in files:
-            # Add each file to the zip bundle
-            # Parameters: source file, name in zip, compression type
-            zf.write(file_name, file_name, compress_type=zipfile.ZIP_STORED)
-            # Clean up the individual file after adding to ZIP
-            os.remove(file_name)
+            if os.path.exists(file_name):  # Check file exists before adding
+                # Add each file to the zip bundle
+                # Parameters: source file, name in zip, compression type
+                zf.write(file_name, file_name, compress_type=zipfile.ZIP_STORED)
+                # Clean up the individual file after adding to ZIP
+                os.remove(file_name)
+            else:
+                print(f"WARNING: Expected file {file_name} not found, skipping")
 
     except FileNotFoundError:
         print("An error occurred - some expected files were not found")
     finally:
         # Ensure the ZIP file is properly closed
         zf.close()
-        print(f"Legacy policy bundle exported to: {args.output}")
+    
+    # Final status report
+    print(f"\n=== Export Complete ===")
+    print(f"Legacy policy bundle exported to: {args.output}")
+    if copilot_data_retrieved:
+        print("✓ Includes CoPilot microsegmentation data")
+    else:
+        print("⚠ CoPilot data not included (not available or failed to retrieve)")
 
 
 if __name__ == '__main__':

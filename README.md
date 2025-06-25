@@ -2,32 +2,50 @@
 
 This tool migrates legacy stateful firewall and FQDN egress policies to Aviatrix Distributed Cloud Firewall (DCF) using a modular architecture.
 
+## Project Structure
+
+This project is organized into two main components:
+
+### Exporter
+- **`exporter/`**: Legacy policy bundle export tool
+  - **`export_legacy_policy_bundle.py`**: Main export script with CoPilot integration
+  - **`requirements.txt`**: Dependencies for the exporter
+  - **`README.md`**: Exporter-specific documentation
+
+### Translator
+- **`translator/`**: Policy translation tool
+  - **`src/`**: Modular translator source code
+  - **`tests/`**: Comprehensive test suite
+  - **`translator.py`**: Legacy monolithic script (backward compatibility)
+
 ## Architecture Overview
 
 The translator uses a modular architecture for improved maintainability, testing, and extensibility:
 
 ### Core Components
-- **`src/main.py`**: Primary entry point with comprehensive CLI options
-- **`src/config/`**: Configuration management and default values
-- **`src/data/`**: Data loading, processing, cleaning, and export functionality
-- **`src/translation/`**: Policy translation engines (L4, FQDN, SmartGroups, WebGroups)
-- **`src/analysis/`**: Policy validation, FQDN analysis, and translation reporting
-- **`src/utils/`**: Utility functions and helper methods
-- **`src/domain/`**: Domain models, constants, and validation logic
+- **`translator/src/main.py`**: Primary entry point with comprehensive CLI options
+- **`translator/src/config/`**: Configuration management and default values
+- **`translator/src/data/`**: Data loading, processing, cleaning, and export functionality
+- **`translator/src/translation/`**: Policy translation engines (L4, FQDN, SmartGroups, WebGroups)
+- **`translator/src/analysis/`**: Policy validation, FQDN analysis, and translation reporting
+- **`translator/src/utils/`**: Utility functions and helper methods
+- **`translator/src/domain/`**: Domain models, constants, and validation logic
 
 ### Legacy Script
-- **`translator.py`**: Original monolithic script (maintained for backward compatibility)
+- **`translator/translator.py`**: Original monolithic script (maintained for backward compatibility)
 - Both entry points produce identical results
 
 ## Quick Start
 
 ### Primary Entry Point
 ```bash
+cd translator
 python src/main.py [options]
 ```
 
 ### Legacy Entry Point (Alternative)
 ```bash
+cd translator
 python translator.py [options]
 ```
 
@@ -58,15 +76,35 @@ If your environment uses standalone FQDN gateways, you must migrate to spoke gat
 Run the export script against your controller to generate a ZIP file containing all legacy policies:
 
 ```bash
+cd exporter
+pip3 install -r requirements.txt
 python3 export_legacy_policy_bundle.py -i <controller_ip> -u <username> [-p <password>] [-o <output_file>] [-w]
 ```
 
-**Options:**
+**Basic Options:**
 - `-i, --controller_ip`: Controller IP address (required)
 - `-u, --username`: Username (required)  
 - `-p, --password`: Password (optional, will prompt if not provided)
-- `-o, --output`: Output file name (optional)
+- `-o, --output`: Output file name (optional, default: legacy_policy_bundle.zip)
 - `-w, --any_web`: Download the Any Webgroup ID (requires controller v7.1+)
+- `-r, --vpc_routes`: Include VPC route table details
+
+**CoPilot Integration Options:**
+- `--copilot-ip`: CoPilot IP address (optional, auto-discovers if not provided)
+- `--skip-copilot`: Skip CoPilot integration entirely
+- `--copilot-required`: Fail if CoPilot data cannot be retrieved
+
+**Examples:**
+```bash
+# Basic export with CoPilot auto-discovery
+python3 export_legacy_policy_bundle.py -i controller.company.com -u admin
+
+# Export without CoPilot integration
+python3 export_legacy_policy_bundle.py -i controller.company.com -u admin --skip-copilot
+
+# Export with specific CoPilot IP
+python3 export_legacy_policy_bundle.py -i controller.company.com -u admin --copilot-ip 192.168.1.100
+```
 
 ### 2. Translate Policies
 1. Create required directories: `./input`, `./output`, and optionally `./debug`
@@ -76,6 +114,8 @@ python3 export_legacy_policy_bundle.py -i <controller_ip> -u <username> [-p <pas
 
 **Primary Entry Point:**
 ```bash
+cd translator
+
 # Basic translation with default settings
 python src/main.py
 
@@ -94,6 +134,7 @@ python src/main.py --global-catch-all-action DENY --any-webgroup-id "custom-webg
 
 **Legacy Entry Point (Alternative):**
 ```bash
+cd translator
 python translator.py [options]
 ```
 
