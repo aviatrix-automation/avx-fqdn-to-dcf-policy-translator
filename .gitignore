@@ -1,5 +1,7 @@
 output/*
 test_files/*
+test_bundle/*
+test_output/*
 input/*
 .vscode
 debug/*
