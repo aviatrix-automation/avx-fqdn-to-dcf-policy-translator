@@ -25,9 +25,93 @@ import zipfile
 import io
 import os
 from tqdm import tqdm
+import sys
 
 # Disable SSL warnings for API calls to Aviatrix controller
 requests.packages.urllib3.disable_warnings()
+
+
+def print_banner():
+    """
+    Display a visually appealing banner for the Aviatrix Legacy Policy Exporter.
+    """
+    banner = """
+╔═════════════════════════════════════════════════════════════════════════════╗
+║                                                                             ║
+║     █████╗ ██╗   ██╗██╗ █████╗ ████████╗██████╗ ██╗██╗  ██╗                ║
+║    ██╔══██╗██║   ██║██║██╔══██╗╚══██╔══╝██╔══██╗██║╚██╗██╔╝                ║
+║    ███████║██║   ██║██║███████║   ██║   ██████╔╝██║ ╚███╔╝                 ║
+║    ██╔══██║╚██╗ ██╔╝██║██╔══██║   ██║   ██╔══██╗██║ ██╔██╗                 ║
+║    ██║  ██║ ╚████╔╝ ██║██║  ██║   ██║   ██║  ██║██║██╔╝ ██╗                ║
+║    ╚═╝  ╚═╝  ╚═══╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝                ║
+║                                                                             ║
+║                      LEGACY POLICY EXPORTER                                ║
+║                                                                             ║
+║    Export legacy firewall and FQDN policies from Aviatrix Controller       ║
+║    for migration to Distributed Cloud Firewall (DCF)                       ║
+║                                                                             ║
+╚═════════════════════════════════════════════════════════════════════════════╝
+    """
+    print(banner)
+
+
+def interactive_prompt(args):
+    """
+    Interactively collect missing required arguments from the user.
+    
+    Args:
+        args: Parsed arguments from argparse
+        
+    Returns:
+        args: Updated arguments with user-provided values
+    """
+    print("\n🔧 Interactive Setup")
+    print("═" * 50)
+    
+    # Controller IP is required
+    if not args.controller_ip:
+        print("\n📡 Controller Configuration:")
+        while not args.controller_ip:
+            args.controller_ip = input("   Controller IP address: ").strip()
+            if not args.controller_ip:
+                print("   ❌ Controller IP is required!")
+    
+    # Username is required
+    if not args.username:
+        print("\n👤 Authentication:")
+        while not args.username:
+            args.username = input("   Username: ").strip()
+            if not args.username:
+                print("   ❌ Username is required!")
+    
+    # Password is required (prompt securely)
+    if not args.password:
+        if not hasattr(args, 'username') or not args.username:
+            print("\n🔐 Authentication:")
+        while not args.password:
+            args.password = getpass.getpass("   Password: ")
+            if not args.password:
+                print("   ❌ Password is required!")
+    
+    # Optional: CoPilot IP
+    if not hasattr(args, 'copilot_ip') or not args.copilot_ip:
+        print("\n🎯 CoPilot Configuration (Optional):")
+        copilot_input = input("   CoPilot IP address (press Enter to auto-discover): ").strip()
+        if copilot_input:
+            args.copilot_ip = copilot_input
+    
+    # Optional: Output filename
+    if args.output == 'legacy_policy_bundle.zip':
+        print("\n💾 Output Configuration:")
+        output_input = input(f"   Output filename [{args.output}]: ").strip()
+        if output_input:
+            args.output = output_input
+    
+    
+    print("\n✅ Configuration complete!")
+    print("═" * 50)
+    
+    return args
 
 
 def get_arguments():
@@ -52,12 +136,20 @@ def get_arguments():
     """
     # Creates argument parser object
     parser = argparse.ArgumentParser(
-        description='Collects Controller IP, username, and password.')
+        description='Export legacy Aviatrix policies for DCF migration.',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Examples:
+  %(prog)s -i 10.0.0.1 -u admin -w -r
+  %(prog)s --interactive
+  %(prog)s -i controller.example.com -u admin --copilot-ip copilot.example.com""")
+    
+    parser.add_argument('--interactive', action='store_true',
+                        help='Launch interactive mode to collect parameters')
     parser.add_argument('-i', '--controller_ip',
-                        help='Controller IP address', required=True)
+                        help='Controller IP address')
     parser.add_argument('--copilot-ip', help='CoPilot IP address (optional, will auto-discover if not provided)')
-    parser.add_argument('-u', '--username', help='Username', required=False)
-    parser.add_argument('-p', '--password', help='Password', required=False)
+    parser.add_argument('-u', '--username', help='Username')
+    parser.add_argument('-p', '--password', help='Password')
     parser.add_argument('-o', '--output', help='Output file name',
                         default='legacy_policy_bundle.zip')
     parser.add_argument(
@@ -70,10 +162,32 @@ def get_arguments():
     parser.add_argument('--cid', help='Manually provide CID.', default=None)
 
     args = parser.parse_args()
-
-    # If password isn't provided as an argument, prompt for it securely (no echo)
-    if args.password is None:
-        args.password = getpass.getpass('Password: ')
+    
+    # Check if we should use interactive mode
+    if args.interactive or not args.controller_ip:
+        args = interactive_prompt(args)
+    elif not args.username or not args.password:
+        # If not interactive but missing credentials, prompt for them
+        if not args.username:
+            args.username = input('Username: ')
+        if not args.password:
+            args.password = getpass.getpass('Password: ')
+    
+    # Validate required arguments
+    if not args.controller_ip:
+        print("❌ Error: Controller IP address is required")
+        print("Use --interactive for guided setup or provide -i/--controller_ip")
+        sys.exit(1)
+    
+    if not args.username:
+        print("❌ Error: Username is required")
+        print("Use --interactive for guided setup or provide -u/--username")
+        sys.exit(1)
+        
+    if not args.password:
+        print("❌ Error: Password is required")
+        print("Use --interactive for guided setup or provide -p/--password")
+        sys.exit(1)
 
     return args
 
@@ -443,6 +557,9 @@ def main():
     
     For detailed usage information, see README.md or run with --help flag.
     """
+    # Display banner
+    print_banner()
+    
     # Fetch arguments
     args = get_arguments()
 
