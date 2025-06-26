@@ -37,15 +37,13 @@ show_warning() {
 
 # Banner function
 show_banner() {
-    echo -e "${BLUE}"
-    echo "╔══════════════════════════════════════════════════════════════════════════════╗"
-    echo "║                                                                              ║"
-    echo "║               ${BOLD}Aviatrix Legacy Policy Exporter Installer${NC}${BLUE}                ║"
-    echo "║                                                                              ║"
-    echo "║                    Quick setup for AWS/Azure CloudShell                     ║"
-    echo "║                                                                              ║"
-    echo "╚══════════════════════════════════════════════════════════════════════════════╝"
-    echo -e "${NC}"
+    echo -e "${BLUE}╔══════════════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║                                                                              ║${NC}"
+    echo -e "${BLUE}║               ${BOLD}Aviatrix Legacy Policy Exporter Installer${NC}${BLUE}                ║${NC}"
+    echo -e "${BLUE}║                                                                              ║${NC}"
+    echo -e "${BLUE}║                    Quick setup for AWS/Azure CloudShell                     ║${NC}"
+    echo -e "${BLUE}║                                                                              ║${NC}"
+    echo -e "${BLUE}╚══════════════════════════════════════════════════════════════════════════════╝${NC}"
     echo
 }
 

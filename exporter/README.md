@@ -7,13 +7,36 @@ This directory contains the exporter tool for collecting legacy Aviatrix firewal
 - **`export_legacy_policy_bundle.py`**: Main export script with CoPilot integration
 - **`copilot_auth_function_example.py`**: Reference implementation for CoPilot authentication
 - **`requirements.txt`**: Python dependencies for the exporter
+- **`cloudshell_install.sh`**: Automated installer for AWS/Azure CloudShell
 - **`README.md`**: This documentation file
 
 ## Installation
 
+### Quick Install for AWS/Azure CloudShell
+
+For the fastest setup in AWS CloudShell or Azure CloudShell, use the automated installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/aviatrix-automation/avx-fqdn-to-dcf-policy-translator/refs/heads/main/exporter/cloudshell_install.sh | bash
+```
+
+This will:
+- Create a working directory (`~/aviatrix-policy-exporter`)
+- Set up a Python virtual environment
+- Download and install all dependencies
+- Download the export script
+- Provide usage instructions
+
+### Manual Installation
+
 Install the required dependencies:
 
 ```bash
+# Create virtual environment (recommended)
+python3 -m venv venv
+source venv/bin/activate
+
+# Install dependencies
 pip install -r requirements.txt
 ```
 
