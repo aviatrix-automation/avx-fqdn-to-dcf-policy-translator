@@ -59,7 +59,7 @@ main() {
         ENV_TYPE="AWS CloudShell"
     else
         ENV_TYPE="Generic Linux"
-        show_warning "Not detected as AWS or Azure CloudShell, but continuing anyway"
+        show_warning "Not detected as AWS or Azure CloudShell, continuing anyway"
     fi
     show_success "Environment detected: $ENV_TYPE"
     
