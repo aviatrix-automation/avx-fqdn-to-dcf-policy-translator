@@ -2,6 +2,7 @@ output/*
 test_files/*
 test_bundle/*
 test_output/*
+references/*
 input/*
 .vscode
 debug/*
