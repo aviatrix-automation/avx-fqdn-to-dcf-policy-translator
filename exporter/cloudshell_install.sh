@@ -63,6 +63,46 @@ main() {
     fi
     show_success "Environment detected: $ENV_TYPE"
     
+    # Get and display CloudShell public IP
+    show_progress "Detecting CloudShell public IP address"
+    CLOUDSHELL_IP=$(curl -s ifconfig.me 2>/dev/null || curl -s ipinfo.io/ip 2>/dev/null || curl -s icanhazip.com 2>/dev/null)
+    if [[ -n "$CLOUDSHELL_IP" ]]; then
+        show_success "CloudShell public IP detected: $CLOUDSHELL_IP"
+        echo
+        echo -e "${RED}${BOLD}⚠️  IMPORTANT SECURITY GROUP CONFIGURATION ⚠️${NC}"
+        echo -e "${YELLOW}╔══════════════════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${YELLOW}║                                                                              ║${NC}"
+        echo -e "${YELLOW}║  Before running the export script, you MUST update your Aviatrix            ║${NC}"
+        echo -e "${YELLOW}║  Controller's security group to allow access from this CloudShell IP:       ║${NC}"
+        echo -e "${YELLOW}║                                                                              ║${NC}"
+        echo -e "${YELLOW}║  ${BOLD}CloudShell IP: ${CLOUDSHELL_IP}${NC}${YELLOW}                                               ║${NC}"
+        echo -e "${YELLOW}║                                                                              ║${NC}"
+        echo -e "${YELLOW}║  Add this IP to your controller's security group for:                       ║${NC}"
+        echo -e "${YELLOW}║  • Port 443 (HTTPS) - for controller API access                             ║${NC}"
+        echo -e "${YELLOW}║  • Port 443 (HTTPS) - for CoPilot access (if using CoPilot)                ║${NC}"
+        echo -e "${YELLOW}║                                                                              ║${NC}"
+        echo -e "${YELLOW}║  ${BOLD}Steps:${NC}${YELLOW}                                                                   ║${NC}"
+        echo -e "${YELLOW}║  1. Go to your cloud provider's console (AWS/Azure/GCP)                     ║${NC}"
+        echo -e "${YELLOW}║  2. Find the security group attached to your Aviatrix Controller            ║${NC}"
+        echo -e "${YELLOW}║  3. Add an inbound rule: HTTPS (443) from ${CLOUDSHELL_IP}/32               ║${NC}"
+        echo -e "${YELLOW}║  4. If using CoPilot, repeat for CoPilot's security group                   ║${NC}"
+        echo -e "${YELLOW}║  5. Save the changes                                                         ║${NC}"
+        echo -e "${YELLOW}║                                                                              ║${NC}"
+        echo -e "${YELLOW}║  ${BOLD}Remember to remove this IP from the security group when finished!${NC}${YELLOW}       ║${NC}"
+        echo -e "${YELLOW}║                                                                              ║${NC}"
+        echo -e "${YELLOW}╚══════════════════════════════════════════════════════════════════════════════╝${NC}"
+        echo
+        echo -e "${CYAN}Press Enter to continue after updating the security group...${NC}"
+        read -r
+    else
+        show_warning "Could not detect CloudShell public IP automatically"
+        echo -e "${YELLOW}Please manually determine your CloudShell's public IP and add it to your${NC}"
+        echo -e "${YELLOW}Aviatrix Controller's security group (port 443) before proceeding.${NC}"
+        echo
+        echo -e "${CYAN}Press Enter to continue...${NC}"
+        read -r
+    fi
+    
     # Check Python version
     show_progress "Checking Python version"
     if ! command -v python3 &> /dev/null; then
@@ -161,6 +201,12 @@ main() {
     echo -e "${BOLD}${GREEN}Files are ready in: $WORK_DIR${NC}"
     echo -e "${BOLD}${GREEN}You can now export your Aviatrix legacy policies!${NC}"
     echo
+    if [[ -n "$CLOUDSHELL_IP" ]]; then
+        echo -e "${RED}${BOLD}🔒 SECURITY REMINDER:${NC}"
+        echo -e "${YELLOW}Don't forget to remove ${CLOUDSHELL_IP}/32 from your controller's${NC}"
+        echo -e "${YELLOW}security group when you're finished with the export!${NC}"
+        echo
+    fi
 }
 
 # Error handling
