@@ -68,6 +68,27 @@ python export_legacy_policy_bundle.py -i <controller_ip> -u <username> -w -r
 python export_legacy_policy_bundle.py -i <controller_ip> -u <username> -o my_policy_bundle.zip
 ```
 
+### Secure API Upload
+```bash
+# Upload bundle to secure API and delete local file
+python export_legacy_policy_bundle.py -i <controller_ip> -u <username> --customer-id customer-123
+
+# Upload bundle but keep local file
+python export_legacy_policy_bundle.py -i <controller_ip> -u <username> --customer-id customer-123 --keep-bundle
+
+# Export only, don't upload
+python export_legacy_policy_bundle.py -i <controller_ip> -u <username> --no-upload
+
+# Use custom API endpoint
+python export_legacy_policy_bundle.py -i <controller_ip> -u <username> --customer-id customer-123 --api-endpoint https://your-api.example.com/prod
+```
+
+### Interactive Mode
+```bash
+# Guided setup with prompts for all options
+python export_legacy_policy_bundle.py --interactive
+```
+
 ## Output
 
 The script creates a ZIP file containing:
@@ -81,12 +102,27 @@ The script creates a ZIP file containing:
 **CoPilot Data (when available):**
 - `copilot_app_domains.json`: Microsegmentation app-domains data
 
+### Output Options
+
+- **Local File**: By default, saves ZIP bundle to current directory
+- **API Upload**: With `--customer-id`, securely uploads bundle to API
+- **Dual Output**: Use `--keep-bundle` to upload AND keep local file
+- **Local Only**: Use `--no-upload` to skip API upload
+
 ## CoPilot Integration Features
 
 - **Auto-Discovery**: Automatically finds CoPilot IP from controller
 - **Graceful Failure**: Continues execution if CoPilot is unavailable
 - **Enhanced Data**: Includes microsegmentation information for improved DCF translation
 - **Flexible Options**: Skip or require CoPilot data as needed
+
+## API Upload Features
+
+- **Secure Upload**: Uses presigned URLs for secure file transfer
+- **Customer-Based**: Requires customer ID for access control
+- **Flexible Storage**: Option to upload, keep local file, or both
+- **Error Handling**: Graceful failure with local file retention
+- **Custom Endpoints**: Support for different API environments
 
 ## Requirements
 

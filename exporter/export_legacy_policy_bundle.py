@@ -18,14 +18,14 @@ Author: Aviatrix Systems
 
 import argparse
 import getpass
-import requests
-from requests import Session
-import json
-import zipfile
 import io
+import json
 import os
-from tqdm import tqdm
 import sys
+import zipfile
+
+import requests
+from tqdm import tqdm
 
 # Disable SSL warnings for API calls to Aviatrix controller
 requests.packages.urllib3.disable_warnings()
@@ -36,21 +36,21 @@ def print_banner():
     Display a visually appealing banner for the Aviatrix Legacy Policy Exporter.
     """
     banner = """
-╔═════════════════════════════════════════════════════════════════════════════╗
-║                                                                             ║
-║     █████╗ ██╗   ██╗██╗ █████╗ ████████╗██████╗ ██╗██╗  ██╗                ║
-║    ██╔══██╗██║   ██║██║██╔══██╗╚══██╔══╝██╔══██╗██║╚██╗██╔╝                ║
-║    ███████║██║   ██║██║███████║   ██║   ██████╔╝██║ ╚███╔╝                 ║
-║    ██╔══██║╚██╗ ██╔╝██║██╔══██║   ██║   ██╔══██╗██║ ██╔██╗                 ║
-║    ██║  ██║ ╚████╔╝ ██║██║  ██║   ██║   ██║  ██║██║██╔╝ ██╗                ║
-║    ╚═╝  ╚═╝  ╚═══╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝                ║
-║                                                                             ║
-║                      LEGACY POLICY EXPORTER                                ║
-║                                                                             ║
-║    Export legacy firewall and FQDN policies from Aviatrix Controller       ║
-║    for migration to Distributed Cloud Firewall (DCF)                       ║
-║                                                                             ║
-╚═════════════════════════════════════════════════════════════════════════════╝
+╔═══════════════════════════════════════════════════════════════════════════╗
+║                                                                           ║
+║     █████╗ ██╗   ██╗██╗ █████╗ ████████╗██████╗ ██╗██╗  ██╗               ║
+║    ██╔══██╗██║   ██║██║██╔══██╗╚══██╔══╝██╔══██╗██║╚██╗██╔╝               ║
+║    ███████║██║   ██║██║███████║   ██║   ██████╔╝██║ ╚███╔╝                ║
+║    ██╔══██║╚██╗ ██╔╝██║██╔══██║   ██║   ██╔══██╗██║ ██╔██╗                ║
+║    ██║  ██║ ╚████╔╝ ██║██║  ██║   ██║   ██║  ██║██║██╔╝ ██╗               ║
+║    ╚═╝  ╚═╝  ╚═══╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝               ║
+║                                                                           ║
+║                      LEGACY POLICY EXPORTER                               ║
+║                                                                           ║
+║    Export legacy firewall and FQDN policies from Aviatrix Controller      ║
+║    for migration to Distributed Cloud Firewall (DCF)                      ║
+║                                                                           ║
+╚═══════════════════════════════════════════════════════════════════════════╝
     """
     print(banner)
 
@@ -67,7 +67,7 @@ def interactive_prompt(args):
     """
     print("\n🔧 Interactive Setup")
     print("═" * 50)
-    
+
     # Controller IP is required
     if not args.controller_ip:
         print("\n📡 Controller Configuration:")
@@ -75,7 +75,7 @@ def interactive_prompt(args):
             args.controller_ip = input("   Controller IP address: ").strip()
             if not args.controller_ip:
                 print("   ❌ Controller IP is required!")
-    
+
     # Username is required
     if not args.username:
         print("\n👤 Authentication:")
@@ -83,7 +83,7 @@ def interactive_prompt(args):
             args.username = input("   Username: ").strip()
             if not args.username:
                 print("   ❌ Username is required!")
-    
+
     # Password is required (prompt securely)
     if not args.password:
         if not hasattr(args, 'username') or not args.username:
@@ -92,25 +92,40 @@ def interactive_prompt(args):
             args.password = getpass.getpass("   Password: ")
             if not args.password:
                 print("   ❌ Password is required!")
-    
+
     # Optional: CoPilot IP
     if not hasattr(args, 'copilot_ip') or not args.copilot_ip:
         print("\n🎯 CoPilot Configuration (Optional):")
         copilot_input = input("   CoPilot IP address (press Enter to auto-discover): ").strip()
         if copilot_input:
             args.copilot_ip = copilot_input
-    
+
     # Optional: Output filename
     if args.output == 'legacy_policy_bundle.zip':
         print("\n💾 Output Configuration:")
         output_input = input(f"   Output filename [{args.output}]: ").strip()
         if output_input:
             args.output = output_input
-    
-    
+
+    # Optional: Customer ID for API upload
+    if not hasattr(args, 'customer_id') or not args.customer_id:
+        print("\n☁️  API Upload Configuration (Optional):")
+        customer_id_input = input("   Customer ID for API upload "
+                                  "(press Enter to skip upload): ").strip()
+        if customer_id_input:
+            args.customer_id = customer_id_input
+        else:
+            args.no_upload = True
+
+    # Upload behavior options
+    if hasattr(args, 'customer_id') and args.customer_id and not args.no_upload:
+        keep_bundle_input = input("   Keep local bundle file after upload? [y/N]: ").strip().lower()
+        if keep_bundle_input in ['y', 'yes']:
+            args.keep_bundle = True
+
     print("\n✅ Configuration complete!")
     print("═" * 50)
-    
+
     return args
 
 
@@ -133,6 +148,10 @@ def get_arguments():
             - skip_copilot: Skip CoPilot integration entirely
             - copilot_required: Fail if CoPilot data cannot be retrieved
             - cid: Manually provided CID to skip login
+            - customer_id: Customer ID for secure API upload
+            - no_upload: Skip uploading to API and keep bundle file locally
+            - api_endpoint: API endpoint for bundle upload
+            - keep_bundle: Keep local bundle file after successful upload
     """
     # Creates argument parser object
     parser = argparse.ArgumentParser(
@@ -141,8 +160,11 @@ def get_arguments():
         epilog="""Examples:
   %(prog)s -i 10.0.0.1 -u admin -w -r
   %(prog)s --interactive
-  %(prog)s -i controller.example.com -u admin --copilot-ip copilot.example.com""")
-    
+  %(prog)s -i controller.example.com -u admin --copilot-ip copilot.example.com
+  %(prog)s -i 10.0.0.1 -u admin --customer-id customer-123
+  %(prog)s -i 10.0.0.1 -u admin --customer-id customer-123 --keep-bundle
+  %(prog)s -i 10.0.0.1 -u admin --no-upload""")
+
     parser.add_argument('--interactive', action='store_true',
                         help='Launch interactive mode to collect parameters')
     parser.add_argument('-i', '--controller_ip',
@@ -161,8 +183,18 @@ def get_arguments():
                         help='Fail if CoPilot data cannot be retrieved')
     parser.add_argument('--cid', help='Manually provide CID.', default=None)
 
+    # API Upload functionality
+    parser.add_argument('--customer-id', help='Customer ID for secure API upload')
+    parser.add_argument('--no-upload', action='store_true',
+                        help='Skip uploading to API and keep bundle file locally')
+    parser.add_argument('--api-endpoint',
+                        default='https://jnx50apad1.execute-api.us-east-2.amazonaws.com/prod',
+                        help='API endpoint for bundle upload (default: production endpoint)')
+    parser.add_argument('--keep-bundle', action='store_true',
+                        help='Keep local bundle file after successful upload')
+
     args = parser.parse_args()
-    
+
     # Check if we should use interactive mode
     if args.interactive or not args.controller_ip:
         args = interactive_prompt(args)
@@ -172,18 +204,18 @@ def get_arguments():
             args.username = input('Username: ')
         if not args.password:
             args.password = getpass.getpass('Password: ')
-    
+
     # Validate required arguments
     if not args.controller_ip:
         print("❌ Error: Controller IP address is required")
         print("Use --interactive for guided setup or provide -i/--controller_ip")
         sys.exit(1)
-    
+
     if not args.username:
         print("❌ Error: Username is required")
         print("Use --interactive for guided setup or provide -u/--username")
         sys.exit(1)
-        
+
     if not args.password:
         print("❌ Error: Password is required")
         print("Use --interactive for guided setup or provide -p/--password")
@@ -214,7 +246,7 @@ def login(controller_ip, controller_user, controller_password):
         requests.exceptions.RequestException: For other request-related errors
     """
     # Format the URL for the controller API
-    url = "https://{}/v2/api".format(controller_ip)
+    url = f"https://{controller_ip}/v2/api"
 
     # Define payload for authentication
     payload = {'action': 'login',
@@ -238,7 +270,7 @@ def login(controller_ip, controller_user, controller_password):
         print("Timeout Error:", errt)
     except requests.exceptions.RequestException as err:
         print("Oops: Something Else", err)
-    
+
     # Return the CID (session token) from the response for subsequent API calls
     return response.json()["CID"]
 
@@ -257,17 +289,17 @@ def get_copilot_ip(controller_ip, cid):
         str or None: CoPilot IP address if found, None if not available or on error
     """
     try:
-        response = aviatrix_api_call(controller_ip, "/v2/api", cid, 
+        response = aviatrix_api_call(controller_ip, "/v2/api", cid,
                                    params={'action': 'get_copilot_association_status'})
         data = response.json()
-        
+
         # Check if CoPilot is associated
         if 'results' not in data:
             print("INFO: No CoPilot association found on this controller")
             return None
-            
+
         results = data['results']
-        
+
         # Check for valid IP
         if results.get('public_ip') and results['public_ip'] != "":
             print(f"Found CoPilot at public IP: {results['public_ip']}")
@@ -278,9 +310,9 @@ def get_copilot_ip(controller_ip, cid):
         else:
             print("INFO: CoPilot is associated but no valid IP found")
             return None
-            
+
     except Exception as e:
-        print(f"INFO: Could not retrieve CoPilot IP: {str(e)}")
+        print(f"INFO: Could not retrieve CoPilot IP: {e!s}")
         return None
 
 
@@ -301,24 +333,24 @@ def login_copilot(copilot_ip, username, password):
     """
     if not copilot_ip:
         return None
-        
+
     try:
         login_payload = {"username": username, "password": password}
         session = requests.Session()
-        
+
         # Set reasonable timeout
-        response = session.post(f"https://{copilot_ip}/api/login", 
-                              json=login_payload, 
-                              verify=False, 
+        response = session.post(f"https://{copilot_ip}/api/login",
+                              json=login_payload,
+                              verify=False,
                               timeout=10)
-        
+
         if response.status_code == 200:
             print(f"✓ Successfully authenticated with CoPilot at {copilot_ip}")
             return session
         else:
             print(f"INFO: CoPilot authentication failed (HTTP {response.status_code})")
             return None
-            
+
     except requests.exceptions.Timeout:
         print(f"INFO: CoPilot connection timed out at {copilot_ip}")
         return None
@@ -326,7 +358,7 @@ def login_copilot(copilot_ip, username, password):
         print(f"INFO: Could not connect to CoPilot at {copilot_ip}")
         return None
     except Exception as e:
-        print(f"INFO: CoPilot login failed: {str(e)}")
+        print(f"INFO: CoPilot login failed: {e!s}")
         return None
 
 
@@ -346,14 +378,14 @@ def get_copilot_app_domains(copilot_session, copilot_ip):
     """
     if not copilot_session or not copilot_ip:
         return None
-        
+
     try:
         response = copilot_session.get(
             f"https://{copilot_ip}/api/microseg/app-domains/poll-resources?cached=true",
             verify=False,
             timeout=30  # Longer timeout for potentially large dataset
         )
-        
+
         if response.status_code == 200:
             data = response.json()
             if isinstance(data, list):
@@ -364,15 +396,15 @@ def get_copilot_app_domains(copilot_session, copilot_ip):
         else:
             print(f"INFO: CoPilot app-domains API returned HTTP {response.status_code}")
             return None
-            
+
     except requests.exceptions.Timeout:
         print("INFO: CoPilot app-domains API request timed out")
         return None
     except Exception as e:
-        print(f"INFO: Failed to retrieve CoPilot app-domains: {str(e)}")
+        print(f"INFO: Failed to retrieve CoPilot app-domains: {e!s}")
         return None
 
-def aviatrix_api_call(controller_ip, path, cid, params={}, stream=False):
+def aviatrix_api_call(controller_ip, path, cid, params=None, stream=False):
     """
     Make an authenticated API call to the Aviatrix controller.
     
@@ -396,18 +428,21 @@ def aviatrix_api_call(controller_ip, path, cid, params={}, stream=False):
         requests.exceptions.Timeout: If request times out
         requests.exceptions.RequestException: For other request-related errors
     """
+    if params is None:
+        params = {}
+        
     # print(cid)
     try:
         # Handle different API versions with appropriate authentication methods
         if "/v2.5/" in path:
             # v2.5 API uses Authorization header
-            headers = {"Authorization": "cid {}".format(cid)}
-            response = requests.get("https://{}{}".format(controller_ip, path),
+            headers = {"Authorization": f"cid {cid}"}
+            response = requests.get(f"https://{controller_ip}{path}",
                                     params=params, headers=headers, verify=False)
         else:
             # v2 API uses CID as a parameter
             params['CID'] = cid
-            response = requests.get("https://{}{}".format(controller_ip, path),
+            response = requests.get(f"https://{controller_ip}{path}",
                                     params=params, stream=stream, verify=False)
 
         # Check if response status is not 200 (HTTP OK), and if so, raise an error
@@ -465,12 +500,12 @@ def get_vpc_routes(controller_ip, cid, gateway_details):
     vpcs = {}
     for gateway in gateway_details['results']:
         vpcs[gateway['vpc_id']] = gateway['gw_name']
-    
+
     # Collect route tables for each VPC
     vpc_routes = {}
     pbar = tqdm(vpcs.keys())
     for vpc in pbar:
-        pbar.set_description("Getting routes tables for {}".format(vpc))
+        pbar.set_description(f"Getting routes tables for {vpc}")
         response = aviatrix_api_call(controller_ip=controller_ip, path="/v2/api",
                                      cid=cid, params={'action': 'get_transit_or_spoke_gateway_details','option':'vpc_route','gateway_name':vpcs[vpc]})
         vpc_routes[vpc] = response.json()['results']
@@ -529,15 +564,136 @@ def get_tf_resources(controller_ip, resource, cid):
         - fqdn_pass_through: FQDN pass-through rules
         - fqdn_tag_rule: FQDN tag rule assignments
     """
-    print("Getting {} TF resource config.".format(resource))
+    print(f"Getting {resource} TF resource config.")
     response = aviatrix_api_call(
         controller_ip, "/v2/api?action=export_terraform_resource", cid, params={"resource": resource}, stream=True)
     try:
         # Extract the Terraform file from the downloaded ZIP
         z = zipfile.ZipFile(io.BytesIO(response.content))
-        z.extract("{}.tf".format(resource))
+        z.extract(f"{resource}.tf")
     except:
-        print("Could not extract TF resource {}".format(resource))
+        print(f"Could not extract TF resource {resource}")
+
+
+def get_upload_url(api_endpoint, customer_id):
+    """
+    Get a presigned upload URL from the API for secure file upload.
+    
+    Args:
+        api_endpoint (str): The API endpoint URL
+        customer_id (str): Customer ID for authentication
+        
+    Returns:
+        str: Presigned upload URL if successful, None if failed
+    """
+    try:
+        print(f"🔗 Requesting upload URL for customer: {customer_id}")
+
+        response = requests.post(
+            f"{api_endpoint}/upload-url",
+            headers={"Content-Type": "application/json"},
+            json={"customerId": customer_id},
+            timeout=30
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            upload_url = data.get('uploadUrl')
+            if upload_url:
+                print("✅ Upload URL obtained successfully")
+                return upload_url
+            else:
+                print("❌ No upload URL in response")
+                return None
+        else:
+            print(f"❌ Failed to get upload URL: HTTP {response.status_code}")
+            try:
+                error_data = response.json()
+                print(f"   Error: {error_data.get('error', 'Unknown error')}")
+            except:
+                print(f"   Response: {response.text}")
+            return None
+
+    except requests.exceptions.Timeout:
+        print("❌ Request timed out while getting upload URL")
+        return None
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Network error while getting upload URL: {e}")
+        return None
+    except Exception as e:
+        print(f"❌ Unexpected error while getting upload URL: {e}")
+        return None
+
+
+def upload_bundle(upload_url, bundle_path):
+    """
+    Upload the policy bundle to the presigned URL.
+    
+    Args:
+        upload_url (str): Presigned URL for upload
+        bundle_path (str): Path to the bundle file to upload
+        
+    Returns:
+        bool: True if upload successful, False otherwise
+    """
+    try:
+        print(f"📤 Uploading bundle: {bundle_path}")
+
+        # Get file size for progress indication
+        file_size = os.path.getsize(bundle_path)
+        print(f"   File size: {file_size / 1024 / 1024:.2f} MB")
+
+        with open(bundle_path, 'rb') as f:
+            response = requests.put(
+                upload_url,
+                data=f,
+                headers={"Content-Type": "application/zip"},
+                timeout=300  # 5 minute timeout for upload
+            )
+
+        if response.status_code == 200:
+            print("✅ Bundle uploaded successfully")
+            return True
+        else:
+            print(f"❌ Upload failed: HTTP {response.status_code}")
+            print(f"   Response: {response.text}")
+            return False
+
+    except requests.exceptions.Timeout:
+        print("❌ Upload timed out")
+        return False
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Network error during upload: {e}")
+        return False
+    except FileNotFoundError:
+        print(f"❌ Bundle file not found: {bundle_path}")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error during upload: {e}")
+        return False
+
+
+def upload_policy_bundle(api_endpoint, customer_id, bundle_path):
+    """
+    Complete workflow to upload a policy bundle via the API.
+    
+    Args:
+        api_endpoint (str): The API endpoint URL
+        customer_id (str): Customer ID for authentication
+        bundle_path (str): Path to the bundle file to upload
+        
+    Returns:
+        bool: True if entire upload process successful, False otherwise
+    """
+    print("\n=== API Upload Process ===")
+
+    # Step 1: Get upload URL
+    upload_url = get_upload_url(api_endpoint, customer_id)
+    if not upload_url:
+        return False
+
+    # Step 2: Upload the file
+    return upload_bundle(upload_url, bundle_path)
 
 
 def main():
@@ -559,22 +715,22 @@ def main():
     """
     # Display banner
     print_banner()
-    
+
     # Fetch arguments
     args = get_arguments()
 
     # Use provided arguments to login and get CID, or use manually provided CID
-    if args.cid == None:
+    if args.cid is None:
         cid = login(args.controller_ip, args.username, args.password)
     else:
         cid = args.cid
 
     # CoPilot integration with graceful failure handling
     copilot_data_retrieved = False
-    
+
     if not args.skip_copilot:
         print("\n=== CoPilot Integration ===")
-        
+
         # Step 1: Get CoPilot IP
         copilot_ip = getattr(args, 'copilot_ip', None)
         if not copilot_ip:
@@ -582,18 +738,18 @@ def main():
             copilot_ip = get_copilot_ip(args.controller_ip, cid)
         else:
             print(f"Using provided CoPilot IP: {copilot_ip}")
-        
+
         # Step 2: Login to CoPilot
         copilot_session = None
         if copilot_ip:
             print(f"Attempting to connect to CoPilot at {copilot_ip}...")
             copilot_session = login_copilot(copilot_ip, args.username, args.password)
-        
+
         # Step 3: Get app-domains data
         if copilot_session:
             print("Retrieving microsegmentation app-domains data...")
             app_domains_data = get_copilot_app_domains(copilot_session, copilot_ip)
-            
+
             if app_domains_data:
                 with open('copilot_app_domains.json', 'w') as f:
                     json.dump(app_domains_data, f, indent=1)
@@ -605,7 +761,7 @@ def main():
             print("⚠ CoPilot authentication failed")
     else:
         print("INFO: CoPilot integration skipped (--skip-copilot flag)")
-    
+
     # Handle required CoPilot scenario
     if getattr(args, 'copilot_required', False) and not copilot_data_retrieved:
         print("ERROR: CoPilot data is required but could not be retrieved")
@@ -613,13 +769,13 @@ def main():
         exit(1)
 
     print("\n=== Controller Data Export ===")
-    
+
     # Get gateway details using the CID - this provides VPC and gateway information
     gateway_details = get_gateway_details(args.controller_ip, cid)
 
     # Optionally get VPC route tables if requested
     # This is useful for migration scenarios involving transit gateways
-    if args.vpc_routes == True:
+    if args.vpc_routes:
         vpc_route_tables = get_vpc_routes(
             args.controller_ip, cid, gateway_details)
         with open('vpc_route_tables.json', 'w') as f:
@@ -631,7 +787,7 @@ def main():
 
     # Optionally get the ID of the "Any-Web" webgroup (requires controller v7.1+)
     # This is required for the translator script
-    if args.any_web == True:
+    if args.any_web:
         any_webgroup = get_any_webgroup_id(args.controller_ip, cid)
         # Write the Any-Web webgroup details to JSON file
         with open('any_webgroup.json', 'w') as f:
@@ -645,20 +801,20 @@ def main():
         get_tf_resources(args.controller_ip, resource, cid)
 
     print("\n=== Creating Policy Bundle ===")
-    
+
     # Bundle all the files into a ZIP and delete the original files to clean up
     # Determine which additional files to include based on command line options
     other_files = ["gateway_details.json"]
-    if args.any_web == True:
+    if args.any_web:
         other_files.append("any_webgroup.json")
-    if args.vpc_routes == True:
+    if args.vpc_routes:
         other_files.append("vpc_route_tables.json")
     if copilot_data_retrieved:  # Only include if successfully retrieved
         other_files.append("copilot_app_domains.json")
-    
+
     # Create the complete file list for the ZIP bundle
-    files = ["{}.tf".format(x) for x in resources] + other_files
-    
+    files = [f"{x}.tf" for x in resources] + other_files
+
     # Create the ZIP file with all exported data
     zf = zipfile.ZipFile(args.output, mode="w")
     try:
@@ -677,14 +833,36 @@ def main():
     finally:
         # Ensure the ZIP file is properly closed
         zf.close()
-    
+
     # Final status report
-    print(f"\n=== Export Complete ===")
+    print("\n=== Export Complete ===")
     print(f"Legacy policy bundle exported to: {args.output}")
     if copilot_data_retrieved:
         print("✓ Includes CoPilot microsegmentation data")
     else:
         print("⚠ CoPilot data not included (not available or failed to retrieve)")
+
+    # Handle upload if customer ID is provided and upload is not disabled
+    if hasattr(args, 'customer_id') and args.customer_id and not args.no_upload:
+        upload_success = upload_policy_bundle(args.api_endpoint, args.customer_id, args.output)
+
+        if upload_success:
+            print("✅ Policy bundle uploaded successfully")
+            # Delete local bundle file after successful upload unless keep_bundle is set
+            if not args.keep_bundle:
+                try:
+                    os.remove(args.output)
+                    print(f"🗑️  Local bundle file deleted: {args.output}")
+                except OSError as e:
+                    print(f"⚠️  Could not delete local bundle file: {e}")
+            else:
+                print(f"📁 Local bundle file retained: {args.output}")
+        else:
+            print("❌ Policy bundle upload failed - bundle file retained locally")
+    elif hasattr(args, 'no_upload') and args.no_upload:
+        print("📁 Upload skipped - bundle file saved locally")
+    else:
+        print("📁 No customer ID provided - bundle file saved locally")
 
 
 if __name__ == '__main__':
@@ -697,6 +875,8 @@ if __name__ == '__main__':
     
     Example usage:
         python3 export_legacy_policy_bundle.py -i 10.0.0.1 -u admin -w -r
+        python3 export_legacy_policy_bundle.py -i 10.0.0.1 -u admin --customer-id customer-123
+        python3 export_legacy_policy_bundle.py --interactive
         
     For complete usage information, see README.md or run with --help
     """
