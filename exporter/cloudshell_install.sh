@@ -140,29 +140,22 @@ main() {
     echo
     
     # Usage instructions
-    echo -e "${BOLD}${BLUE}HOW TO USE:${NC}"
+    echo -e "${BOLD}${BLUE}QUICK START:${NC}"
     echo
-    echo -e "${YELLOW}1. Navigate to the installation directory:${NC}"
+    echo -e "${YELLOW}Copy and paste these 3 lines to start the script:${NC}"
+    echo
     echo -e "   ${CYAN}cd $WORK_DIR${NC}"
-    echo
-    echo -e "${YELLOW}2. Activate the virtual environment:${NC}"
     echo -e "   ${CYAN}source venv/bin/activate${NC}"
+    echo -e "   ${CYAN}python export_legacy_policy_bundle.py${NC}"
     echo
-    echo -e "${YELLOW}3. Run the exporter script:${NC}"
-    echo -e "   ${CYAN}python export_legacy_policy_bundle.py -i <controller_ip> -u <username>${NC}"
+    echo -e "${YELLOW}The script will run in interactive mode and guide you through setup.${NC}"
     echo
-    echo -e "${YELLOW}4. Available options:${NC}"
-    echo -e "   ${CYAN}-i, --controller-ip${NC}    Controller IP address (required)"
-    echo -e "   ${CYAN}-u, --username${NC}         Username (required)"
-    echo -e "   ${CYAN}-p, --password${NC}         Password (optional, will prompt if not provided)"
-    echo -e "   ${CYAN}-o, --output${NC}           Output file (default: policy_bundle_YYYYMMDD_HHMMSS.json)"
-    echo -e "   ${CYAN}-w, --write-password${NC}   Write password to output file (use with caution)"
+    echo -e "${BOLD}${BLUE}ADVANCED OPTIONS:${NC}"
     echo
-    echo -e "${YELLOW}5. Example usage:${NC}"
-    echo -e "   ${CYAN}python export_legacy_policy_bundle.py -i 10.0.0.100 -u admin${NC}"
-    echo -e "   ${CYAN}python export_legacy_policy_bundle.py -i controller.example.com -u admin -o my_policies.json${NC}"
+    echo -e "${YELLOW}For command-line options and non-interactive usage, run:${NC}"
+    echo -e "   ${CYAN}python export_legacy_policy_bundle.py --help${NC}"
     echo
-    echo -e "${YELLOW}6. When finished, deactivate the virtual environment:${NC}"
+    echo -e "${YELLOW}When finished, deactivate the virtual environment:${NC}"
     echo -e "   ${CYAN}deactivate${NC}"
     echo
     echo -e "${BOLD}${GREEN}Files are ready in: $WORK_DIR${NC}"
