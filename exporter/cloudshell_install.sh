@@ -39,9 +39,9 @@ show_warning() {
 show_banner() {
     echo -e "${BLUE}╔══════════════════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${BLUE}║                                                                              ║${NC}"
-    echo -e "${BLUE}║                ${BOLD}Aviatrix Legacy Policy Exporter Installer${NC}${BLUE}               ║${NC}"
+    echo -e "${BLUE}║                ${BOLD}Aviatrix Legacy Policy Exporter Installer${NC}${BLUE}                   ║${NC}"
     echo -e "${BLUE}║                                                                              ║${NC}"
-    echo -e "${BLUE}║                     Quick setup for AWS/Azure CloudShell                    ║${NC}"
+    echo -e "${BLUE}║                     Quick setup for AWS/Azure CloudShell                      ║${NC}"
     echo -e "${BLUE}║                                                                              ║${NC}"
     echo -e "${BLUE}╚══════════════════════════════════════════════════════════════════════════════╝${NC}"
     echo
