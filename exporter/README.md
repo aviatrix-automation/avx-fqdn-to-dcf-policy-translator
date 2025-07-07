@@ -11,24 +11,57 @@ This directory contains the exporter tool for collecting legacy Aviatrix firewal
 - **`README.md`**: This documentation file
 
 
-## Usage
+## Quick Start Guide
 
 ![Demo](./images/legacy-policy-exporter.gif)
 
-1. **Quick Install**: Copy the following command.
+### Prerequisites
+- AWS or Azure CloudShell access
+- Aviatrix Controller and CoPilot credentials
+- Network access to your Aviatrix infrastructure
+
+### Step-by-Step Instructions
+
+#### 1. Install the Exporter
+Copy and run the automated installer command:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/aviatrix-automation/avx-fqdn-to-dcf-policy-translator/refs/heads/main/exporter/cloudshell_install.sh | bash
 ```
-2. Open the AWS Console and open a Cloudshell session.
-3. Copy and paste the installer command into Cloudshell and execute it.  This will setup the environment and download the exporter script.
-4. Once the installer script has completed, it will show the IP address of the Cloudshell instance.  Add the CloudShell IP to the AWS Security Groups for your Aviatrix Controller and CoPilot.  This is necessary so that the exporter script can access the Controller and CoPilot from the Cloudshell environment.  Remember to remove this at after the exporter has completed.
-5. Copy and paste the exporter commands into Cloudshell.  These are shown during the installer script execution, or can be copied and pasted from below:
-```   
+
+#### 2. Open CloudShell
+- **AWS**: Open the AWS Console and launch a CloudShell session
+- **Azure**: Open the Azure Portal and launch a CloudShell session
+
+#### 3. Execute the Installer
+Paste the installer command into CloudShell and execute it. This will:
+- Set up the environment
+- Download the exporter script
+- Install all dependencies
+- Display the CloudShell IP address
+
+#### 4. Configure Network Access
+**Important**: Add the CloudShell IP address to your AWS Security Groups for:
+- Aviatrix Controller
+- CoPilot (if using CoPilot integration)
+
+> ⚠️ **Security Note**: Remember to remove this IP access after the export is complete.
+
+#### 5. Run the Exporter
+Execute the following commands in CloudShell:
+```bash
 cd /home/cloudshell-user/aviatrix-policy-exporter
 source venv/bin/activate
 python export_legacy_policy_bundle.py
 ```
-6. Follow the interactive wizard to input your Controller public IP, CoPilot public IP and credentials.  You will also need to add your customer ID if you want to share the exported information with Aviatrix.  Customer IDs need to be allow-listed by Aviatrix prior to secure upload.
+
+#### 6. Follow the Interactive Wizard
+The script will prompt you for:
+- **Controller Public IP**: Your Aviatrix Controller's public IP address
+- **CoPilot Public IP**: Your CoPilot's public IP address (optional)
+- **Credentials**: Username and password for both systems
+- **Customer ID**: Required only if uploading to Aviatrix for analysis
+
+> 📝 **Note**: Customer IDs must be allow-listed by Aviatrix before secure upload is possible.
 
 
 
