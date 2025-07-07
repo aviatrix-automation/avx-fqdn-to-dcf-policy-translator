@@ -1,6 +1,6 @@
 # Legacy Policy Bundle Exporter
 
-This directory contains the exporter tool for collecting legacy Aviatrix firewall and FQDN policies from Aviatrix Controller and CoPilot.
+This directory contains the exporter tool for collecting legacy Aviatrix firewall and FQDN policies from Aviatrix Controller and CoPilot.  The exporter script can optionally download the policy bundle for running the translation, or can send the policy bundle securely to Aviatrix for analysis.
 
 ## Files
 
@@ -10,7 +10,30 @@ This directory contains the exporter tool for collecting legacy Aviatrix firewal
 - **`cloudshell_install.sh`**: Automated installer for AWS/Azure CloudShell
 - **`README.md`**: This documentation file
 
-## Installation
+
+## Usage
+
+![Demo](./images/legacy-policy-exporter.gif)
+
+1. **Quick Install**: Copy the following command.
+```bash
+curl -fsSL https://raw.githubusercontent.com/aviatrix-automation/avx-fqdn-to-dcf-policy-translator/refs/heads/main/exporter/cloudshell_install.sh | bash
+```
+2. Open the AWS Console and open a Cloudshell session.
+3. Copy and paste the installer command into Cloudshell and execute it.  This will setup the environment and download the exporter script.
+4. Once the installer script has completed, it will show the IP address of the Cloudshell instance.  Add the CloudShell IP to the AWS Security Groups for your Aviatrix Controller and CoPilot.  This is necessary so that the exporter script can access the Controller and CoPilot from the Cloudshell environment.  Remember to remove this at after the exporter has completed.
+5. Copy and paste the exporter commands into Cloudshell.  These are shown during the installer script execution, or can be copied and pasted from below:
+```   
+cd /home/cloudshell-user/aviatrix-policy-exporter
+source venv/bin/activate
+python export_legacy_policy_bundle.py
+```
+6. Follow the interactive wizard to input your Controller public IP, CoPilot public IP and credentials.  You will also need to add your customer ID if you want to share the exported information with Aviatrix.  Customer IDs need to be allow-listed by Aviatrix prior to secure upload.
+
+
+
+
+## Detailed Instructions
 
 ### Quick Install for AWS/Azure CloudShell
 
