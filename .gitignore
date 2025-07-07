@@ -68,3 +68,11 @@ venv.bak/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+
+# Project-specific files to ignore
+CLAUDE.md
+pyproject.toml
+requirements-test.txt
+exporter/test_args.py
+exporter/test_upload.py
+translator/CoPilot/
