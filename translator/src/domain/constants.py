@@ -3,10 +3,22 @@ Domain constants and validation patterns for the legacy-to-DCF policy translator
 """
 
 import re
+from dataclasses import dataclass
 from typing import Set
 
 # DCF 8.0 SNI domain validation regex pattern
 DCF_SNI_DOMAIN_PATTERN = re.compile(r"^(\*|\*\.[-A-Za-z0-9_.]+|[-A-Za-z0-9_.]+)$")
+
+# Data models for unsupported FQDN tracking
+@dataclass
+class UnsupportedFQDNRecord:
+    """Record for tracking unsupported FQDN domains during translation."""
+    fqdn_tag_name: str
+    webgroup_name: str
+    domain: str
+    port: str
+    protocol: str
+    reason: str
 
 # Protocol mappings and constants
 PROTOCOL_MAPPINGS = {

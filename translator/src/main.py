@@ -289,13 +289,18 @@ def main() -> int:
             l4_dcf_policies_df = l4_handler.build_l4_policies(fw_policy_df)
             l4_dcf_policies_df["web_groups"] = None
 
+        # Initialize unsupported FQDN tracker for comprehensive reporting
+        from translation.unsupported_fqdn_tracker import UnsupportedFQDNTracker
+        unsupported_fqdn_tracker = UnsupportedFQDNTracker()
+
         # Initialize FQDN handler and process FQDN rules
         logging.info("Processing FQDN rules...")
         fqdn_handler = FQDNHandler(
             config.default_web_port_ranges,
             translate_port_to_port_range,
             pretty_parse_vpc_name,
-            deduplicate_policy_names
+            deduplicate_policy_names,
+            unsupported_fqdn_tracker
         )
 
         # Process FQDN rules
@@ -364,8 +369,15 @@ def main() -> int:
             combined_smartgroups_df = pd.concat([combined_smartgroups_df, hostname_sg_for_export], ignore_index=True)
             logging.info(f"Combined {len(smartgroups_df)} regular SmartGroups with {len(hostname_smartgroups_df)} hostname SmartGroups for export")
 
-        # Prepare output data
+        # Prepare output data (including input data for reporting)
         output_data = {
+            # Input data for summary reporting
+            "fw_policy_df": fw_policy_df,
+            "fw_tag_df": fw_tag_df,
+            "fqdn_df": fqdn_df,
+            "fqdn_tag_rule_df": fqdn_tag_rule_df,
+            "gateways_df": gateways_df,
+            # Output data
             "smartgroups_df": combined_smartgroups_df,
             "webgroups_df": webgroups_df,
             "hostname_smartgroups_df": hostname_smartgroups_df,
@@ -374,6 +386,7 @@ def main() -> int:
             "catch_all_rules_df": catch_all_rules_df,
             "full_policy_list": full_policy_list,
             "unsupported_rules_df": unsupported_rules_df,
+            "unsupported_fqdn_domains_df": unsupported_fqdn_tracker.to_dataframe(),
         }
 
         # Initialize data exporter and export all outputs
@@ -420,6 +433,9 @@ def main() -> int:
         logging.info(f"WebGroups created: {len(webgroups_df)}")
         # hostname_policy_count now included in internet_rules_df, not separate
         logging.info(f"Total DCF Policies created: {len(full_policy_list)}")
+        
+        # Log unsupported FQDN summary
+        unsupported_fqdn_tracker.log_summary()
 
         return 0
 

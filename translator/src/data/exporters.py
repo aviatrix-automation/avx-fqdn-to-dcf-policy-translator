@@ -202,6 +202,7 @@ class CSVExporter:
             "full_policy_list": "full_policy_list.csv",
             "smartgroups_df": "smartgroups.csv",
             "removed_duplicates": "removed_duplicate_policies.csv",
+            "unsupported_fqdn_domains_df": "unsupported_fqdn_domains.csv",
         }
 
         for key, filename in output_exports.items():
@@ -216,6 +217,7 @@ class CSVExporter:
                 "clean_fqdn_hostnames": "clean_fqdn_hostnames.csv",
                 "clean_fqdn_webgroups": "clean_fqdn_webgroups.csv",
                 "unsupported_fqdn_rules": "unsupported_fqdn_rules.csv",
+                "unsupported_fqdn_domains_df": "unsupported_fqdn_domains.csv",
             }
 
             for key, filename in debug_exports.items():
@@ -268,6 +270,25 @@ class ReportExporter:
             stats["hostname_smartgroups"] = len(data["hostname_smartgroups_df"])
         if "unsupported_rules_df" in data:
             stats["unsupported_rules"] = len(data["unsupported_rules_df"])
+        
+        # Add unsupported FQDN domain statistics
+        if "unsupported_fqdn_domains_df" in data:
+            unsupported_fqdn_df = data["unsupported_fqdn_domains_df"]
+            if not unsupported_fqdn_df.empty:
+                stats["unsupported_fqdn_domains"] = {
+                    "total_count": len(unsupported_fqdn_df),
+                    "affected_webgroups": len(unsupported_fqdn_df["webgroup_name"].unique()),
+                    "affected_fqdn_tags": len(unsupported_fqdn_df["fqdn_tag_name"].unique()),
+                    "by_reason": unsupported_fqdn_df["reason"].value_counts().to_dict()
+                }
+            else:
+                stats["unsupported_fqdn_domains"] = {
+                    "total_count": 0,
+                    "affected_webgroups": 0,
+                    "affected_fqdn_tags": 0,
+                    "by_reason": {}
+                }
+        
         summary["translation_stats"] = stats
 
         return summary

@@ -167,9 +167,10 @@ class FQDNRuleProcessor:
 class WebGroupBuilder:
     """Builds DCF WebGroups from FQDN rules."""
 
-    def __init__(self) -> None:
+    def __init__(self, unsupported_fqdn_tracker: Optional[Any] = None) -> None:
         self.cleaner = DataCleaner(TranslationConfig())
         self.all_invalid_domains: List[Dict[str, str]] = []
+        self.unsupported_fqdn_tracker = unsupported_fqdn_tracker
 
     def build_webgroup_df(self, fqdn_tag_rule_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -199,15 +200,30 @@ class WebGroupBuilder:
         # Filter domains for DCF 8.0 compatibility before creating selectors
         def filter_and_create_selector(row: pd.Series) -> Dict[str, Any]:
             webgroup_name = row["name"]
+            fqdn_tag_name = row["fqdn_tag_name"]
+            protocol = row["protocol"].upper()
+            port = str(row["port"])
             valid_domains, invalid_domains = FQDNValidator.filter_domains_for_dcf_compatibility(
                 row["fqdn"], webgroup_name
             )
 
             if invalid_domains:
-                # Store invalid domains for reporting using instance attribute
+                # Store invalid domains for reporting using instance attribute (legacy format)
                 self.all_invalid_domains.extend(
                     [{"webgroup": webgroup_name, "domain": domain} for domain in invalid_domains]
                 )
+                
+                # Add detailed records to the tracker if available
+                if self.unsupported_fqdn_tracker:
+                    for domain in invalid_domains:
+                        self.unsupported_fqdn_tracker.add_invalid_domain(
+                            fqdn_tag_name=fqdn_tag_name,
+                            webgroup_name=webgroup_name,
+                            domain=domain,
+                            port=port,
+                            protocol=protocol,
+                            reason="DCF 8.0 incompatible SNI domain pattern"
+                        )
 
             return self._translate_fqdn_tag_to_sg_selector(valid_domains)
 
@@ -506,6 +522,7 @@ class FQDNHandler:
         translate_port_to_port_range_func: Any,
         pretty_parse_vpc_name_func: Any,
         deduplicate_policy_names_func: Any,
+        unsupported_fqdn_tracker: Optional[Any] = None,
     ) -> None:
         """
         Initialize the FQDN handler with required dependencies.
@@ -515,16 +532,18 @@ class FQDNHandler:
             translate_port_to_port_range_func: Function to convert ports to DCF format
             pretty_parse_vpc_name_func: Function to clean VPC names
             deduplicate_policy_names_func: Function to deduplicate policy names
+            unsupported_fqdn_tracker: Optional tracker for unsupported FQDN domains
         """
         self.validator = FQDNValidator()
         self.rule_processor = FQDNRuleProcessor(default_web_port_ranges)
-        self.webgroup_builder = WebGroupBuilder()
+        self.webgroup_builder = WebGroupBuilder(unsupported_fqdn_tracker)
         self.hostname_sg_builder = HostnameSmartGroupBuilder()
         self.policy_builder = FQDNPolicyBuilder(
             translate_port_to_port_range_func,
             pretty_parse_vpc_name_func,
             deduplicate_policy_names_func,
         )
+        self.unsupported_fqdn_tracker = unsupported_fqdn_tracker
 
     def process_fqdn_rules(
         self, fqdn_tag_rule_df: pd.DataFrame, fqdn_df: pd.DataFrame

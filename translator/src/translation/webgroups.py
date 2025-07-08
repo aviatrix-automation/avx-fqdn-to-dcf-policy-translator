@@ -8,7 +8,7 @@ performance for web traffic filtering.
 
 import logging
 from collections import defaultdict
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
@@ -17,14 +17,16 @@ from ..config.defaults import DCF_CONSTRAINTS
 from ..data.processors import DataCleaner
 from ..domain.constants import FQDN_MODE_MAPPINGS
 from .fqdn_handlers import FQDNValidator
+from .unsupported_fqdn_tracker import UnsupportedFQDNTracker
 
 
 class WebGroupBuilder:
     """Handles the creation and management of WebGroups from FQDN tag rules."""
 
-    def __init__(self) -> None:
+    def __init__(self, unsupported_fqdn_tracker: Optional[UnsupportedFQDNTracker] = None) -> None:
         self.all_invalid_domains: List[Dict[str, str]] = []
         self.cleaner = DataCleaner(TranslationConfig())
+        self.unsupported_fqdn_tracker = unsupported_fqdn_tracker or UnsupportedFQDNTracker()
 
     def create_webgroup_name(self, row: pd.Series) -> str:
         """
@@ -44,21 +46,41 @@ class WebGroupBuilder:
         Filter domains for DCF 8.0 compatibility and create WebGroup selector.
 
         Args:
-            row: DataFrame row containing name and fqdn (list of domains)
+            row: DataFrame row containing name, fqdn (list of domains), fqdn_tag_name, protocol, port
 
         Returns:
             WebGroup selector dictionary with filtered domains
         """
         webgroup_name = row["name"]
+        fqdn_tag_name = row["fqdn_tag_name"]
+        protocol = row["protocol"].upper()
+        port = str(row["port"])
+        original_domains = row["fqdn"]
+        
         valid_domains, invalid_domains = FQDNValidator.filter_domains_for_dcf_compatibility(
-            row["fqdn"], webgroup_name
+            original_domains, webgroup_name
         )
 
+        # Log if all domains were filtered out
+        if len(original_domains) > 0 and len(valid_domains) == 0:
+            logging.warning(f"WebGroup '{webgroup_name}' will be empty - all {len(original_domains)} domains were DCF-incompatible")
+
         if invalid_domains:
-            # Store invalid domains for reporting
+            # Store invalid domains for reporting (legacy format)
             self.all_invalid_domains.extend(
                 [{"webgroup": webgroup_name, "domain": domain} for domain in invalid_domains]
             )
+            
+            # Add detailed records to the tracker
+            for domain in invalid_domains:
+                self.unsupported_fqdn_tracker.add_invalid_domain(
+                    fqdn_tag_name=fqdn_tag_name,
+                    webgroup_name=webgroup_name,
+                    domain=domain,
+                    port=port,
+                    protocol=protocol,
+                    reason="DCF 8.0 incompatible SNI domain pattern"
+                )
 
         return self._translate_fqdn_to_selector(valid_domains)
 
@@ -72,7 +94,10 @@ class WebGroupBuilder:
         Returns:
             WebGroup selector dictionary
         """
-        return {"match_expressions": [{"type": "fqdn", "fqdn": fqdn_list}]}
+        match_expressions = []
+        for fqdn in fqdn_list:
+            match_expressions.append({"snifilter": fqdn.strip()})
+        return {"match_expressions": match_expressions}
 
     def build_webgroup_dataframe(self, fqdn_tag_rule_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -100,6 +125,20 @@ class WebGroupBuilder:
 
         # Filter domains for DCF 8.0 compatibility and create selectors
         grouped_df["selector"] = grouped_df.apply(self.filter_and_create_selector, axis=1)
+
+        # Filter out WebGroups with empty match_expressions (all domains were filtered)
+        initial_count = len(grouped_df)
+        # Check if match_expressions array is empty
+        valid_mask = grouped_df["selector"].apply(
+            lambda x: len(x.get("match_expressions", [])) > 0
+        )
+        grouped_df = grouped_df[valid_mask]
+        filtered_count = initial_count - len(grouped_df)
+        
+        if filtered_count > 0:
+            logging.warning(
+                f"Filtered out {filtered_count} WebGroups with no valid DCF-compatible domains"
+            )
 
         # Clean WebGroup names for DCF compatibility
         grouped_df = self.cleaner.remove_invalid_name_chars(grouped_df, "name")
@@ -129,8 +168,9 @@ class WebGroupBuilder:
 class WebGroupManager:
     """High-level manager for WebGroup operations."""
 
-    def __init__(self) -> None:
-        self.builder = WebGroupBuilder()
+    def __init__(self, unsupported_fqdn_tracker: Optional[UnsupportedFQDNTracker] = None) -> None:
+        self.builder = WebGroupBuilder(unsupported_fqdn_tracker)
+        self.unsupported_fqdn_tracker = self.builder.unsupported_fqdn_tracker
 
     def create_webgroups_from_fqdn_rules(self, fqdn_tag_rule_df: pd.DataFrame) -> pd.DataFrame:
         """
