@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from .defaults import (
     DCF_CONSTRAINTS,
     DEBUG_FILES,
+    FQDN_SOURCE_IP_CONFIG,
     OUTPUT_FILES,
     POLICY_PRIORITIES,
     TERRAFORM_FILE_PATTERNS,
@@ -41,6 +42,9 @@ class TranslationConfig:
     # DCF constraints
     dcf_constraints: Dict[str, Any] = field(default_factory=lambda: DCF_CONSTRAINTS.copy())
     policy_priorities: Dict[str, int] = field(default_factory=lambda: POLICY_PRIORITIES.copy())
+
+    # FQDN Source IP configuration
+    fqdn_source_ip_config: Dict[str, Any] = field(default_factory=lambda: FQDN_SOURCE_IP_CONFIG.copy())
 
     # DCF-specific configuration
     internet_sg_id: str = "def000ad-0000-0000-0000-000000000001"
@@ -89,6 +93,11 @@ class TranslationConfig:
         env_validate = get_env_value("validate_only")
         if env_validate:
             self.validate_only = env_validate.lower() in ("true", "1", "yes", "on")
+
+        # Load FQDN source IP advanced translation setting
+        env_fqdn_advanced = get_env_value("fqdn_source_ip_advanced")
+        if env_fqdn_advanced:
+            self.fqdn_source_ip_config["enable_advanced_translation"] = env_fqdn_advanced.lower() in ("true", "1", "yes", "on")
 
     def get_input_file_path(self, file_key: str) -> Path:
         """Get the full path for an input file."""
@@ -156,3 +165,23 @@ class TranslationConfig:
                 errors.append(f"Required input file not found: {file_path}")
 
         return errors
+
+    def get_fqdn_source_ip_advanced_translation(self) -> bool:
+        """Get whether advanced FQDN source IP translation is enabled."""
+        return self.fqdn_source_ip_config.get("enable_advanced_translation", True)
+
+    def set_fqdn_source_ip_advanced_translation(self, enabled: bool) -> None:
+        """Set whether advanced FQDN source IP translation is enabled."""
+        self.fqdn_source_ip_config["enable_advanced_translation"] = enabled
+
+    def get_fqdn_source_ip_simple_suffix(self) -> str:
+        """Get the suffix for simple FQDN source IP SmartGroups."""
+        return self.fqdn_source_ip_config.get("simple_smartgroup_suffix", "_source_ips")
+
+    def get_fqdn_source_ip_asset_suffix(self) -> str:
+        """Get the suffix for asset-based FQDN source IP SmartGroups."""
+        return self.fqdn_source_ip_config.get("asset_smartgroup_suffix", "_asset")
+
+    def get_fqdn_source_ip_policy_priority_offset(self) -> int:
+        """Get the policy priority offset for FQDN source IP policies."""
+        return self.fqdn_source_ip_config.get("policy_priority_offset", 50)
