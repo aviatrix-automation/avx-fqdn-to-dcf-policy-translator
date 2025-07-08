@@ -45,8 +45,7 @@ class SourceIPSmartGroupManager:
         # Create a temporary DataFrame to use the cleaner
         temp_df = pd.DataFrame({"name": [name]})
         cleaned_df = self.data_cleaner.remove_invalid_name_chars(temp_df, "name")
-        return cleaned_df["name"].iloc[0]
-        self.smartgroup_registry: Dict[str, Dict[str, Any]] = {}
+        return str(cleaned_df["name"].iloc[0])
 
     def process_fqdn_source_ip_lists(self, fqdn_df: pd.DataFrame) -> List[Dict[str, Any]]:
         """
@@ -209,7 +208,7 @@ class SourceIPSmartGroupManager:
         Returns:
             Dictionary mapping asset keys to lists of matches
         """
-        asset_groups = {}
+        asset_groups: Dict[str, List[Dict[str, Any]]] = {}
 
         for match in matches:
             asset_name = match.get("asset_name", "")

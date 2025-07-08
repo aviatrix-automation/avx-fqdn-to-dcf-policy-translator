@@ -169,7 +169,7 @@ class CoPilotAssetLoader:
                 return None
 
             self.logger.info(f"Loaded {len(assets)} assets from CoPilot app domains file")
-            return assets
+            return list(assets)  # Ensure we return a List[Dict[str, Any]]
 
         except json.JSONDecodeError as e:
             self.logger.error(f"Failed to parse CoPilot app domains JSON: {e}")

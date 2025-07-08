@@ -265,20 +265,20 @@ def main() -> int:
             fw_policy_df, fw_tag_df, gateways_df, fqdn_df=fqdn_df
         )
         smartgroups_df = smartgroup_results.get("complete_smartgroups", pd.DataFrame())
-        
+
         # Annotate fqdn_df with source IP filter information
         source_ip_smartgroups_df = smartgroup_results.get("source_ip_smartgroups", pd.DataFrame())
-        
+
         # Trust the data loader's determination of has_source_ip_filter
         # which is based on actual source_ip_list presence in FQDN config
         logging.info(f"FQDN tags with source IP filters: {fqdn_df['has_source_ip_filter'].sum()}")
-        
+
         # Debug log the mappings
         if config.enable_debug:
             logging.debug(f"Source IP SmartGroups created: {len(source_ip_smartgroups_df)}")
             if not source_ip_smartgroups_df.empty:
                 logging.debug(f"Source IP SmartGroup names: {list(source_ip_smartgroups_df['name'])}")
-            fqdn_tags_with_filters = fqdn_df[fqdn_df['has_source_ip_filter'] == True]['fqdn_tag'].tolist()
+            fqdn_tags_with_filters = fqdn_df[fqdn_df['has_source_ip_filter']]['fqdn_tag'].tolist()
             logging.debug(f"FQDN tags with actual source IP filters: {fqdn_tags_with_filters}")
 
         # Initialize L4 policy handler and create L4 policies
@@ -418,7 +418,7 @@ def main() -> int:
             f"(including {hostname_sg_count} hostname SmartGroups)"
         )
         logging.info(f"WebGroups created: {len(webgroups_df)}")
-        # hostname_policy_count now included in internet_rules_df, not separate  
+        # hostname_policy_count now included in internet_rules_df, not separate
         logging.info(f"Total DCF Policies created: {len(full_policy_list)}")
 
         return 0

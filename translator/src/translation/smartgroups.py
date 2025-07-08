@@ -271,7 +271,7 @@ class SmartGroupBuilder:
 class SmartGroupManager:
     """Manages SmartGroup operations and provides high-level interface."""
 
-    def __init__(self, config: TranslationConfig, asset_matcher=None):
+    def __init__(self, config: TranslationConfig, asset_matcher: Optional[Any] = None):
         self.config = config
         self.builder = SmartGroupBuilder(config)
         self.source_ip_manager = SourceIPSmartGroupManager(config, asset_matcher)
@@ -365,4 +365,4 @@ class SmartGroupManager:
         Returns:
             Terraform reference string or None if not found
         """
-        return self.source_ip_manager.get_source_ip_smartgroup_reference(fqdn_tag)
+        return self.source_ip_manager.get_source_ip_smartgroup_reference(fqdn_tag)  # type: ignore[no-any-return]
