@@ -201,6 +201,17 @@ class SmartGroupBuilder:
         hostname_sg_df = pd.DataFrame(hostname_smartgroups)
         hostname_sg_df = self.cleaner.remove_invalid_name_chars(hostname_sg_df, "name")
 
+        # Remove duplicates based on SmartGroup name
+        initial_count = len(hostname_sg_df)
+        hostname_sg_df = hostname_sg_df.drop_duplicates(subset=["name"], keep="first")
+        duplicate_count = initial_count - len(hostname_sg_df)
+        
+        if duplicate_count > 0:
+            self.logger.warning(
+                f"Removed {duplicate_count} duplicate hostname SmartGroups "
+                f"(hash collisions in name generation)"
+            )
+
         self.logger.info(f"Created {len(hostname_sg_df)} hostname SmartGroups")
         return hostname_sg_df
 
@@ -245,6 +256,16 @@ class SmartGroupBuilder:
             smartgroups = pd.concat(sg_dfs, ignore_index=True)
             # Clean invalid characters in names
             smartgroups = self.cleaner.remove_invalid_name_chars(smartgroups, "name")
+            
+            # Remove duplicates based on SmartGroup name
+            initial_count = len(smartgroups)
+            smartgroups = smartgroups.drop_duplicates(subset=["name"], keep="first")
+            duplicate_count = initial_count - len(smartgroups)
+            
+            if duplicate_count > 0:
+                self.logger.warning(
+                    f"Removed {duplicate_count} duplicate SmartGroups during merge"
+                )
         else:
             smartgroups = pd.DataFrame(columns=["name", "selector"])
 
@@ -341,6 +362,16 @@ class SmartGroupManager:
         non_empty_dfs = [df for df in smartgroup_dfs if not df.empty]
         if non_empty_dfs:
             complete_smartgroups = pd.concat(non_empty_dfs, ignore_index=True)
+            
+            # Remove duplicates based on SmartGroup name
+            initial_count = len(complete_smartgroups)
+            complete_smartgroups = complete_smartgroups.drop_duplicates(subset=["name"], keep="first")
+            duplicate_count = initial_count - len(complete_smartgroups)
+            
+            if duplicate_count > 0:
+                self.logger.warning(
+                    f"Removed {duplicate_count} duplicate SmartGroups from final assembly"
+                )
         else:
             complete_smartgroups = pd.DataFrame(columns=["name", "selector"])
 

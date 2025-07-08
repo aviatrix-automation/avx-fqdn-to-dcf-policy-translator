@@ -42,6 +42,14 @@ class TerraformExporter:
             # Create empty structure
             tf_resource_dict: Dict[str, Any] = {"resource": {resource_name: {}}}
         else:
+            # Remove duplicates based on the name column to prevent duplicate resource names
+            initial_count = len(df)
+            df = df.drop_duplicates(subset=[name_column], keep='first')
+            final_count = len(df)
+            if initial_count != final_count:
+                duplicates_removed = initial_count - final_count
+                self.logger.info(f"Removed {duplicates_removed} duplicate resources with same {name_column} during export")
+            
             # Convert DataFrame to Terraform format
             records = df.to_dict(orient="records")
             tf_resource_dict = {record[name_column]: record for record in records}

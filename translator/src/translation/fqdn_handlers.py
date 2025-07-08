@@ -209,9 +209,23 @@ class WebGroupBuilder:
                     [{"webgroup": webgroup_name, "domain": domain} for domain in invalid_domains]
                 )
 
-            return WebGroupBuilder._translate_fqdn_tag_to_sg_selector(valid_domains)
+            return self._translate_fqdn_tag_to_sg_selector(valid_domains)
 
         fqdn_tag_rule_df["selector"] = fqdn_tag_rule_df.apply(filter_and_create_selector, axis=1)
+
+        # Filter out WebGroups with empty match_expressions (all domains were filtered)
+        initial_count = len(fqdn_tag_rule_df)
+        # Check if match_expressions array is empty
+        valid_mask = fqdn_tag_rule_df["selector"].apply(
+            lambda x: len(x.get("match_expressions", [])) > 0
+        )
+        fqdn_tag_rule_df = fqdn_tag_rule_df[valid_mask]
+        filtered_count = initial_count - len(fqdn_tag_rule_df)
+        
+        if filtered_count > 0:
+            logging.warning(
+                f"Filtered out {filtered_count} WebGroups with no valid DCF-compatible domains"
+            )
 
         # Note: Using Aviatrix built-in "Any" webgroup instead of creating
         # custom any-domain webgroup

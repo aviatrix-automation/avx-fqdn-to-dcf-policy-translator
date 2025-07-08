@@ -13,7 +13,7 @@ import pandas as pd
 from config import TranslationConfig
 from config.defaults import POLICY_PRIORITIES
 from data.processors import DataCleaner
-from utils.data_processing import is_ipv4, pretty_parse_vpc_name, translate_port_to_port_range
+from utils.data_processing import is_ipv4, translate_port_to_port_range
 
 
 class PolicyBuilder:
@@ -259,8 +259,7 @@ class InternetPolicyBuilder(PolicyBuilder):
         """Process and clean FQDN tags for egress VPCs."""
 
         egress_vpcs["src_smart_groups"] = egress_vpcs["vpc_id"]
-        egress_vpcs["src_smart_groups"] = pretty_parse_vpc_name(egress_vpcs, "src_smart_groups")
-        egress_vpcs = self.cleaner.remove_invalid_name_chars(egress_vpcs, "src_smart_groups")
+        egress_vpcs["src_smart_groups"] = self.cleaner.pretty_parse_vpc_name(egress_vpcs, "src_smart_groups")
         egress_vpcs["src_smart_groups"] = egress_vpcs["src_smart_groups"].apply(
             lambda x: self.create_smartgroup_reference(x)
         )
@@ -880,9 +879,8 @@ class CatchAllPolicyBuilder(PolicyBuilder):
         # Prepare SmartGroup column naming
         vpcs_and_fw["smart_groups"] = vpcs_and_fw["vpc_id"]
 
-
-        vpcs_and_fw["smart_groups"] = pretty_parse_vpc_name(vpcs_and_fw, "smart_groups")
-        vpcs_and_fw = self.cleaner.remove_invalid_name_chars(vpcs_and_fw, "smart_groups")
+        # Use DataCleaner for consistent VPC name cleaning (same as SmartGroup creation)
+        vpcs_and_fw["smart_groups"] = self.cleaner.pretty_parse_vpc_name(vpcs_and_fw, "smart_groups")
 
         vpcs_and_fw["smart_groups"] = vpcs_and_fw["smart_groups"].apply(
             lambda x: self.create_smartgroup_reference(x)
@@ -1061,9 +1059,7 @@ class HostnamePolicyBuilder(PolicyBuilder):
         egress_vpcs["src_smart_groups"] = egress_vpcs["vpc_id"]
 
         # Clean VPC names for SmartGroup references
-
-        egress_vpcs["src_smart_groups"] = pretty_parse_vpc_name(egress_vpcs, "src_smart_groups")
-        egress_vpcs = self.cleaner.remove_invalid_name_chars(egress_vpcs, "src_smart_groups")
+        egress_vpcs["src_smart_groups"] = self.cleaner.pretty_parse_vpc_name(egress_vpcs, "src_smart_groups")
 
         # Clean up disabled tag references
         disabled_tag_names = list(fqdn_df[~fqdn_df["fqdn_enabled"]]["fqdn_tag"])
