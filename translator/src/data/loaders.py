@@ -21,6 +21,7 @@ import sys
 sys.path.append(str(Path(__file__).parent.parent))
 
 from config import TranslationConfig
+from data.copilot_loader import CoPilotAssetLoader
 from utils.data_processing import sanitize_terraform_file
 
 
@@ -111,7 +112,11 @@ class TerraformLoader:
             return pd.DataFrame()
 
         try:
-            df = pd.DataFrame([tf_resource[x] for x in tf_resource.keys()])
+            # Special handling for FQDN resources to process gw_filter_tag_list
+            if resource_name == "fqdn":
+                df = self._process_fqdn_resources(tf_resource)
+            else:
+                df = pd.DataFrame([tf_resource[x] for x in tf_resource.keys()])
 
             # Save debug file if enabled
             if self.config.enable_debug:
@@ -124,6 +129,62 @@ class TerraformLoader:
         except Exception as e:
             self.logger.error(f"Failed to create DataFrame for {resource_name}: {e}")
             return pd.DataFrame()
+
+    def _process_fqdn_resources(self, tf_resource: Dict[str, Any]) -> pd.DataFrame:
+        """
+        Process FQDN resources with special handling for gw_filter_tag_list.
+
+        Args:
+            tf_resource: Dictionary of FQDN Terraform resources
+
+        Returns:
+            DataFrame with processed FQDN data including source IP information
+        """
+        processed_records = []
+
+        for resource_id, resource_config in tf_resource.items():
+            # Start with base FQDN configuration
+            base_record = {
+                "resource_id": resource_id,
+                "fqdn_tag": resource_config.get("fqdn_tag", ""),
+                "fqdn_mode": resource_config.get("fqdn_mode", ""),
+                "fqdn_enabled": resource_config.get("fqdn_enabled", True),
+                "manage_domain_names": resource_config.get("manage_domain_names", False),
+                "has_source_ip_filter": False,
+                "source_ip_lists": [],
+                "gateway_assignments": [],
+            }
+
+            # Process gw_filter_tag_list if present
+            gw_filter_list = resource_config.get("gw_filter_tag_list", [])
+
+            # Handle both single item and list formats
+            if isinstance(gw_filter_list, dict):
+                gw_filter_list = [gw_filter_list]
+            elif not isinstance(gw_filter_list, list):
+                gw_filter_list = []
+
+            if gw_filter_list:
+                for gw_filter in gw_filter_list:
+                    gateway_name = gw_filter.get("gw_name", "")
+                    source_ip_list = gw_filter.get("source_ip_list", [])
+
+                    base_record["gateway_assignments"].append(gateway_name)
+
+                    if source_ip_list:
+                        base_record["has_source_ip_filter"] = True
+                        base_record["source_ip_lists"].append({
+                            "gateway_name": gateway_name,
+                            "source_ips": source_ip_list if isinstance(source_ip_list, list) else [source_ip_list]
+                        })
+
+            # Convert lists to strings for CSV compatibility
+            base_record["source_ip_lists_json"] = json.dumps(base_record["source_ip_lists"])
+            base_record["gateway_assignments_str"] = ",".join(base_record["gateway_assignments"])
+
+            processed_records.append(base_record)
+
+        return pd.DataFrame(processed_records)
 
     def load_all_terraform_resources(self) -> Dict[str, pd.DataFrame]:
         """
@@ -201,6 +262,7 @@ class ConfigurationLoader:
         self.config = config
         self.tf_loader = TerraformLoader(config)
         self.gateway_loader = GatewayDetailsLoader(config)
+        self.copilot_loader = CoPilotAssetLoader(config.input_dir)
         self.logger = logging.getLogger(__name__)
 
     def load_all_configuration(self) -> Dict[str, pd.DataFrame]:
@@ -217,6 +279,12 @@ class ConfigurationLoader:
 
         # Load gateway details
         config_data["gateways"] = self.gateway_loader.load_gateway_details()
+
+        # Load CoPilot assets if available (optional)
+        copilot_assets_df = self.copilot_loader.get_assets_dataframe()
+        if copilot_assets_df is not None:
+            config_data["copilot_assets"] = copilot_assets_df
+            self.logger.info("CoPilot asset data loaded successfully")
 
         # Validate critical data is present
         self._validate_loaded_data(config_data)

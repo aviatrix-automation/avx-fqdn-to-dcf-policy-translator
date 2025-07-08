@@ -192,7 +192,7 @@ class CSVExporter:
         # Export main analysis files to output directory
         output_exports = {
             "full_policy_list": "full_policy_list.csv",
-            "smartgroups": "smartgroups.csv",
+            "smartgroups_df": "smartgroups.csv",
             "removed_duplicates": "removed_duplicate_policies.csv",
         }
 

@@ -20,6 +20,7 @@ TERRAFORM_FILE_PATTERNS = {
     "fqdn_tag_rule": "fqdn_tag_rule.tf",
     "smart_group": "smart_group.tf",
     "gateway_details": "gateway_details.json",
+    "copilot_app_domains": "copilot_app_domains.json",
 }
 
 # Output file names
@@ -56,6 +57,14 @@ DCF_CONSTRAINTS = {
 # Default policy priorities
 POLICY_PRIORITIES = {"l4_policies": 100, "internet_policies": 200, "catch_all_deny": 65534}
 
+# FQDN Source IP List Feature Configuration
+FQDN_SOURCE_IP_CONFIG = {
+    "enable_advanced_translation": True,  # Enable asset-based translation
+    "simple_smartgroup_suffix": "_source_ips",  # Suffix for simple mode SmartGroups
+    "asset_smartgroup_suffix": "_asset",  # Suffix for asset-based SmartGroups
+    "policy_priority_offset": 50,  # Priority offset for source IP policies
+}
+
 # Environment variable mappings
 ENV_VAR_MAPPINGS = {
     "input_dir": "TRANSLATOR_INPUT_DIR",
@@ -64,6 +73,7 @@ ENV_VAR_MAPPINGS = {
     "enable_debug": "TRANSLATOR_DEBUG_ENABLED",
     "force_overwrite": "TRANSLATOR_FORCE_OVERWRITE",
     "validate_only": "TRANSLATOR_VALIDATE_ONLY",
+    "fqdn_source_ip_advanced": "TRANSLATOR_FQDN_SOURCE_IP_ADVANCED",
 }
 
 # Character replacements for DCF compatibility

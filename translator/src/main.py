@@ -193,7 +193,6 @@ def main() -> int:
         # Import modular components
 
         import pandas as pd
-
         from analysis.fqdn_analysis import FQDNAnalyzer
         from analysis.policy_validators import PolicyValidator
         from analysis.translation_reporter import TranslationReporter
@@ -250,9 +249,37 @@ def main() -> int:
 
         # Initialize SmartGroup manager and create SmartGroups
         logging.info("Building SmartGroups...")
-        sg_manager = SmartGroupManager(config)
-        smartgroup_results = sg_manager.create_all_smartgroups(fw_policy_df, fw_tag_df, gateways_df)
-        smartgroups_df = smartgroup_results.get("standard_smartgroups", pd.DataFrame())
+
+        # Initialize CoPilot asset matcher if available
+        asset_matcher = None
+        copilot_assets_df = config_data.get("copilot_assets")
+        if copilot_assets_df is not None and not copilot_assets_df.empty:
+            from data.copilot_loader import CoPilotAssetLoader
+            copilot_loader = CoPilotAssetLoader(config.input_dir)
+            asset_matcher = copilot_loader.create_asset_matcher()
+            if asset_matcher:
+                logging.info("CoPilot asset matcher initialized for advanced FQDN source IP translation")
+
+        sg_manager = SmartGroupManager(config, asset_matcher)
+        smartgroup_results = sg_manager.create_all_smartgroups(
+            fw_policy_df, fw_tag_df, gateways_df, fqdn_df=fqdn_df
+        )
+        smartgroups_df = smartgroup_results.get("complete_smartgroups", pd.DataFrame())
+        
+        # Annotate fqdn_df with source IP filter information
+        source_ip_smartgroups_df = smartgroup_results.get("source_ip_smartgroups", pd.DataFrame())
+        
+        # Trust the data loader's determination of has_source_ip_filter
+        # which is based on actual source_ip_list presence in FQDN config
+        logging.info(f"FQDN tags with source IP filters: {fqdn_df['has_source_ip_filter'].sum()}")
+        
+        # Debug log the mappings
+        if config.enable_debug:
+            logging.debug(f"Source IP SmartGroups created: {len(source_ip_smartgroups_df)}")
+            if not source_ip_smartgroups_df.empty:
+                logging.debug(f"Source IP SmartGroup names: {list(source_ip_smartgroups_df['name'])}")
+            fqdn_tags_with_filters = fqdn_df[fqdn_df['has_source_ip_filter'] == True]['fqdn_tag'].tolist()
+            logging.debug(f"FQDN tags with actual source IP filters: {fqdn_tags_with_filters}")
 
         # Initialize L4 policy handler and create L4 policies
         l4_dcf_policies_df = pd.DataFrame()
@@ -286,21 +313,11 @@ def main() -> int:
 
         webgroups_df = fqdn_handler.build_webgroups(webgroup_rules_df)
 
-        # Merge hostname SmartGroups with existing SmartGroups
-        if len(hostname_smartgroups_df) > 0:
-            hostname_sg_for_export = hostname_smartgroups_df[["name", "selector"]].copy()
-            smartgroups_df = pd.concat([smartgroups_df, hostname_sg_for_export], ignore_index=True)
-
-        # Export SmartGroups and WebGroups to CSV
+        # Export SmartGroups and WebGroups to CSV (SmartGroups now include all types)
         smartgroups_df.to_csv(config.get_output_file_path("smart_groups_csv"))
 
         # Create policies
-        logging.info("Building hostname policies...")
-        hostname_policies_df = fqdn_handler.build_hostname_policies(
-            gateways_df, fqdn_df, hostname_smartgroups_df, hostname_rules_df
-        )
-
-        logging.info("Building internet policies...")
+        logging.info("Building internet and hostname policies...")
         internet_rules_df = build_internet_policies(
             gateways_df,
             fqdn_df,
@@ -309,6 +326,8 @@ def main() -> int:
             config.internet_sg_id,
             config.anywhere_sg_id,
             config.default_web_port_ranges,
+            hostname_smartgroups_df,
+            hostname_rules_df,
         )
 
         logging.info("Building catch-all policies...")
@@ -325,8 +344,6 @@ def main() -> int:
         policy_dataframes = []
         if len(fw_policy_df) > 0 and len(l4_dcf_policies_df) > 0:
             policy_dataframes.append(l4_dcf_policies_df)
-        if len(hostname_policies_df) > 0:
-            policy_dataframes.append(hostname_policies_df)
         if len(internet_rules_df) > 0:
             policy_dataframes.append(internet_rules_df)
         if len(catch_all_rules_df) > 0:
@@ -339,12 +356,19 @@ def main() -> int:
         else:
             full_policy_list = pd.DataFrame()
 
+        # Combine SmartGroups and hostname SmartGroups for export
+        combined_smartgroups_df = smartgroups_df.copy()
+        if len(hostname_smartgroups_df) > 0:
+            # Ensure hostname SmartGroups only include columns compatible with regular SmartGroups
+            hostname_sg_for_export = hostname_smartgroups_df[["name", "selector"]].copy()
+            combined_smartgroups_df = pd.concat([combined_smartgroups_df, hostname_sg_for_export], ignore_index=True)
+            logging.info(f"Combined {len(smartgroups_df)} regular SmartGroups with {len(hostname_smartgroups_df)} hostname SmartGroups for export")
+
         # Prepare output data
         output_data = {
-            "smartgroups_df": smartgroups_df,
+            "smartgroups_df": combined_smartgroups_df,
             "webgroups_df": webgroups_df,
             "hostname_smartgroups_df": hostname_smartgroups_df,
-            "hostname_policies_df": hostname_policies_df,
             "l4_dcf_policies_df": l4_dcf_policies_df,
             "internet_rules_df": internet_rules_df,
             "catch_all_rules_df": catch_all_rules_df,
@@ -385,7 +409,7 @@ def main() -> int:
 
         # Show final counts
         hostname_sg_count = len(hostname_smartgroups_df) if len(hostname_smartgroups_df) > 0 else 0
-        hostname_policy_count = len(hostname_policies_df) if len(hostname_policies_df) > 0 else 0
+        # hostname_policy_count now included in internet_rules_df, not separate
 
         logging.info("Translation completed successfully!")
         smartgroups_total = len(smartgroups_df)
@@ -394,7 +418,7 @@ def main() -> int:
             f"(including {hostname_sg_count} hostname SmartGroups)"
         )
         logging.info(f"WebGroups created: {len(webgroups_df)}")
-        logging.info(f"Hostname Policies created: {hostname_policy_count}")
+        # hostname_policy_count now included in internet_rules_df, not separate  
         logging.info(f"Total DCF Policies created: {len(full_policy_list)}")
 
         return 0

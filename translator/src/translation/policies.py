@@ -10,7 +10,6 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
-
 from config import TranslationConfig
 from config.defaults import POLICY_PRIORITIES
 from data.processors import DataCleaner
@@ -157,23 +156,30 @@ class InternetPolicyBuilder(PolicyBuilder):
         self.cleaner = DataCleaner(TranslationConfig())
 
     def build_internet_policies(
-        self, gateways_df: pd.DataFrame, fqdn_df: pd.DataFrame, webgroups_df: pd.DataFrame
+        self, gateways_df: pd.DataFrame, fqdn_df: pd.DataFrame, webgroups_df: pd.DataFrame,
+        hostname_smartgroups_df: pd.DataFrame = None, hostname_rules_df: pd.DataFrame = None
     ) -> pd.DataFrame:
         """
-        Build internet egress policies for FQDN traffic.
+        Build internet egress policies for FQDN traffic (both webgroup and hostname-based).
 
         Args:
             gateways_df: DataFrame with gateway details
             fqdn_df: DataFrame with FQDN tag configurations
             webgroups_df: DataFrame with WebGroup configurations
+            hostname_smartgroups_df: DataFrame with hostname SmartGroup configurations
+            hostname_rules_df: DataFrame with hostname rules
 
         Returns:
             DataFrame with internet egress policies
         """
         logging.info("Building internet egress policies")
 
+        # Debug log basic call
+        logging.info("InternetPolicyBuilder.build_internet_policies called")
+
         # Get egress VPCs (non-HAGW with NAT enabled)
         egress_vpcs = self._get_egress_vpcs(gateways_df)
+        logging.info(f"Found {len(egress_vpcs)} egress VPCs")
         if len(egress_vpcs) == 0:
             logging.info("No egress VPCs found")
             return pd.DataFrame()
@@ -189,17 +195,38 @@ class InternetPolicyBuilder(PolicyBuilder):
         if len(fqdn_policies) > 0:
             policy_dataframes.append(fqdn_policies)
 
-        # 2. Default policies for FQDN tags
+        # 2. Source IP list FQDN policies (for FQDN tags with source_ip_list SmartGroups)
+        source_ip_policies = self._build_source_ip_fqdn_policies(fqdn_df, webgroups_df)
+        if len(source_ip_policies) > 0:
+            policy_dataframes.append(source_ip_policies)
+
+        # 3. Hostname policies (both VPC-level and source IP-specific)
+        if hostname_smartgroups_df is not None and hostname_rules_df is not None:
+            # 3a. VPC-level hostname policies (exclude source IP tags)
+            vpc_hostname_policies = self._build_vpc_hostname_policies(
+                gateways_df, fqdn_df, hostname_smartgroups_df, hostname_rules_df
+            )
+            if len(vpc_hostname_policies) > 0:
+                policy_dataframes.append(vpc_hostname_policies)
+
+            # 3b. Source IP hostname policies (source IP tags only)
+            source_ip_hostname_policies = self._build_source_ip_hostname_policies(
+                fqdn_df, hostname_smartgroups_df, hostname_rules_df
+            )
+            if len(source_ip_hostname_policies) > 0:
+                policy_dataframes.append(source_ip_hostname_policies)
+
+        # 4. Default policies for FQDN tags
         default_policies = self._build_fqdn_default_policies(egress_vpcs, fqdn_df)
         if len(default_policies) > 0:
             policy_dataframes.append(default_policies)
 
-        # 3. Discovery mode policies
+        # 5. Discovery mode policies
         discovery_policies = self._build_discovery_policies(egress_vpcs)
         if len(discovery_policies) > 0:
             policy_dataframes.extend(discovery_policies)
 
-        # 4. NAT-only policies
+        # 6. NAT-only policies
         nat_only_policies = self._build_nat_only_policies(egress_vpcs)
         if len(nat_only_policies) > 0:
             policy_dataframes.append(nat_only_policies)
@@ -218,19 +245,18 @@ class InternetPolicyBuilder(PolicyBuilder):
         return internet_policies
 
     def _get_egress_vpcs(self, gateways_df: pd.DataFrame) -> pd.DataFrame:
-        """Get egress VPCs (non-HAGW with NAT enabled)."""
+        """Get egress VPCs (non-HAGW with egress control enabled)."""
         if len(gateways_df) == 0:
             return pd.DataFrame()
 
         egress_vpcs = gateways_df[
-            (gateways_df["is_hagw"] == "no") & (gateways_df["enable_nat"] == "yes")
+            (gateways_df["is_hagw"] == "no") & (gateways_df["egress_control"] == "Enabled")
         ].drop_duplicates(subset=["vpc_id", "vpc_region", "account_name"])
 
         return egress_vpcs[["fqdn_tags", "stateful_fw", "egress_control", "vpc_name", "vpc_id"]]
 
     def _process_fqdn_tags(self, egress_vpcs: pd.DataFrame, fqdn_df: pd.DataFrame) -> pd.DataFrame:
         """Process and clean FQDN tags for egress VPCs."""
-        from utils.data_processing import pretty_parse_vpc_name
 
         egress_vpcs["src_smart_groups"] = egress_vpcs["vpc_id"]
         egress_vpcs["src_smart_groups"] = pretty_parse_vpc_name(egress_vpcs, "src_smart_groups")
@@ -270,8 +296,19 @@ class InternetPolicyBuilder(PolicyBuilder):
         )
 
         egress_vpcs_with_enabled_tags = egress_vpcs_with_enabled_tags[
-            egress_vpcs_with_enabled_tags["fqdn_enabled"].fillna(False) == True
+            egress_vpcs_with_enabled_tags["fqdn_enabled"].fillna(False)
         ]
+        
+        # EXCLUDE FQDN tags that have source IP filters - they should only be handled by _build_source_ip_fqdn_policies
+        egress_vpcs_with_enabled_tags = egress_vpcs_with_enabled_tags[
+            egress_vpcs_with_enabled_tags["has_source_ip_filter"].fillna(False) == False
+        ]
+        
+        # If no FQDN tags remain after filtering out source IP filtered ones, return empty
+        if egress_vpcs_with_enabled_tags.empty:
+            logging.info("No FQDN tags without source IP filters found for VPC-level policies")
+            return pd.DataFrame()
+            
         egress_vpcs_with_enabled_tags = egress_vpcs_with_enabled_tags.rename(
             columns={"fqdn_tag": "fqdn_tag_name"}
         )
@@ -338,8 +375,18 @@ class InternetPolicyBuilder(PolicyBuilder):
         )
 
         egress_vpcs_with_enabled_tags = egress_vpcs_with_enabled_tags[
-            egress_vpcs_with_enabled_tags["fqdn_enabled"].fillna(False) == True
+            egress_vpcs_with_enabled_tags["fqdn_enabled"].fillna(False)
         ]
+        
+        # EXCLUDE FQDN tags that have source IP filters - they should only be handled by _build_source_ip_fqdn_policies
+        egress_vpcs_with_enabled_tags = egress_vpcs_with_enabled_tags[
+            egress_vpcs_with_enabled_tags["has_source_ip_filter"].fillna(False) == False
+        ]
+        
+        # If no FQDN tags remain after filtering, return empty
+        if egress_vpcs_with_enabled_tags.empty:
+            logging.info("No FQDN tags without source IP filters found for default policies")
+            return pd.DataFrame()
 
         fqdn_tag_default_policies = (
             egress_vpcs_with_enabled_tags.groupby(["fqdn_mode"])["src_smart_groups"]
@@ -362,6 +409,85 @@ class InternetPolicyBuilder(PolicyBuilder):
         )
 
         return fqdn_tag_default_policies.drop(columns="fqdn_mode")
+
+    def _build_source_ip_fqdn_policies(
+        self, fqdn_df: pd.DataFrame, webgroups_df: pd.DataFrame
+    ) -> pd.DataFrame:
+        """Build internet policies for FQDN tags that have source_ip_list SmartGroups."""
+        logging.info(f"_build_source_ip_fqdn_policies called with fqdn_df: {len(fqdn_df)} rows, webgroups_df: {len(webgroups_df)} rows")
+        
+        # Filter FQDN tags that have source IP filters and are enabled
+        source_ip_fqdns = fqdn_df[
+            (fqdn_df["has_source_ip_filter"] == True) & (fqdn_df["fqdn_enabled"] == True)
+        ].copy()
+
+        logging.info(f"Filtered to {len(source_ip_fqdns)} FQDN tags with source IP filters and enabled")
+
+        if source_ip_fqdns.empty:
+            logging.info("No enabled FQDN tags with source IP filters found")
+            return pd.DataFrame()
+
+        logging.info(f"Building policies for {len(source_ip_fqdns)} FQDN tags with source IP filters")
+
+        # Create policies for each FQDN tag with webgroups
+        source_ip_policies = source_ip_fqdns.merge(
+            webgroups_df, left_on=["fqdn_tag", "fqdn_mode"], right_on=["fqdn_tag_name", "fqdn_mode"], how="left"
+        )
+
+        # Create WebGroup references
+        source_ip_policies["web_groups"] = source_ip_policies["name"].apply(
+            lambda x: f"${{aviatrix_web_group.{x}.id}}" if pd.notna(x) else None
+        )
+
+        # Group by FQDN tag and configuration
+        source_ip_policies = (
+            source_ip_policies.groupby(
+                ["fqdn_tag", "protocol", "port", "fqdn_mode"]
+            )["web_groups"]
+            .apply(list)
+            .reset_index()
+        )
+
+        # Build policy structure
+        source_ip_policies["src_smart_groups"] = source_ip_policies["fqdn_tag"].apply(
+            lambda x: [self.create_smartgroup_reference(self._clean_fqdn_tag_name(x))]
+        )
+        source_ip_policies["dst_smart_groups"] = source_ip_policies.apply(
+            lambda x: [self.internet_sg_id], axis=1
+        )
+        source_ip_policies["action"] = source_ip_policies["fqdn_mode"].apply(
+            lambda x: "PERMIT" if x == "white" else "DENY"
+        )
+        source_ip_policies["port_ranges"] = source_ip_policies["port"].apply(
+            lambda x: translate_port_to_port_range([x])
+        )
+        source_ip_policies["logging"] = True
+        source_ip_policies["protocol"] = source_ip_policies["protocol"].str.upper()
+        source_ip_policies["name"] = source_ip_policies.apply(
+            lambda row: f"Egress_{self._clean_fqdn_tag_name(row['fqdn_tag'])}_"
+            f"{'permit' if row['fqdn_mode'] == 'white' else 'deny'}",
+            axis=1,
+        )
+
+        return source_ip_policies[
+            [
+                "src_smart_groups",
+                "dst_smart_groups",
+                "action",
+                "port_ranges",
+                "logging",
+                "protocol",
+                "name",
+                "web_groups",
+            ]
+        ]
+
+    def _clean_fqdn_tag_name(self, fqdn_tag: str) -> str:
+        """Clean FQDN tag name for SmartGroup reference."""
+        # Use the same cleaning logic as the source IP SmartGroup manager
+        temp_df = pd.DataFrame({"name": [fqdn_tag]})
+        cleaned_df = self.cleaner.remove_invalid_name_chars(temp_df, "name")
+        return cleaned_df["name"].iloc[0]
 
     def _build_discovery_policies(self, egress_vpcs: pd.DataFrame) -> List[pd.DataFrame]:
         """Build discovery mode policies for L7 and L4 traffic."""
@@ -467,6 +593,235 @@ class InternetPolicyBuilder(PolicyBuilder):
 
         return internet_policies
 
+    def _build_source_ip_hostname_policies(
+        self, fqdn_df: pd.DataFrame, hostname_smartgroups_df: pd.DataFrame, hostname_rules_df: pd.DataFrame
+    ) -> pd.DataFrame:
+        """Build hostname policies for FQDN tags that have source_ip_list SmartGroups."""
+        logging.info(f"_build_source_ip_hostname_policies called with fqdn_df: {len(fqdn_df)} rows, hostname_smartgroups_df: {len(hostname_smartgroups_df)} rows")
+        
+        # Filter FQDN tags that have source IP filters and are enabled
+        source_ip_fqdns = fqdn_df[
+            (fqdn_df["has_source_ip_filter"] == True) & (fqdn_df["fqdn_enabled"] == True)
+        ].copy()
+
+        logging.info(f"Filtered to {len(source_ip_fqdns)} FQDN tags with source IP filters and enabled")
+
+        if source_ip_fqdns.empty or hostname_smartgroups_df.empty:
+            logging.info("No enabled FQDN tags with source IP filters or no hostname SmartGroups found")
+            return pd.DataFrame()
+
+        logging.info(f"Building hostname policies for {len(source_ip_fqdns)} FQDN tags with source IP filters")
+
+        # Create hostname SmartGroup mapping for efficient lookup
+        # We need to match source IP FQDN tags to hostname SmartGroups by fqdn_tag_name, protocol, port, and mode
+        hostname_sg_map = {}
+        for _, sg_row in hostname_smartgroups_df.iterrows():
+            # Extract fqdn_tag_name from the SmartGroup name (format: fqdn_{fqdn_tag_name}_{hash})
+            sg_name = sg_row["name"]
+            if sg_name.startswith("fqdn_"):
+                # Extract the fqdn_tag_name by removing the prefix and hash suffix
+                name_parts = sg_name[5:]  # Remove "fqdn_" prefix
+                # Find the last underscore to separate tag name from hash
+                last_underscore = name_parts.rfind("_")
+                if last_underscore > 0:
+                    extracted_fqdn_tag_name = name_parts[:last_underscore]
+                    # Convert underscores back to spaces to match original FQDN tag names
+                    original_fqdn_tag_name = extracted_fqdn_tag_name.replace("_", " ")
+                    protocol = sg_row["protocol"]
+                    port = sg_row["port"]
+                    fqdn_mode = sg_row["fqdn_mode"]
+                    
+                    # Create unique key for this SmartGroup
+                    key = (original_fqdn_tag_name, protocol, port, fqdn_mode)
+                    hostname_sg_map[key] = sg_row
+
+        logging.info(f"Created hostname SmartGroup map with {len(hostname_sg_map)} entries")
+
+        # Now create policies by matching source IP FQDN tags to their corresponding hostname SmartGroups
+        hostname_policies = []
+        for _, fqdn_row in source_ip_fqdns.iterrows():
+            fqdn_tag = fqdn_row["fqdn_tag"]
+            fqdn_mode = fqdn_row["fqdn_mode"]
+            cleaned_fqdn_tag = self._clean_fqdn_tag_name(fqdn_tag)
+            
+            # Find hostname rules that match this FQDN tag
+            matching_rules = hostname_rules_df[
+                hostname_rules_df["fqdn_tag_name"] == fqdn_tag
+            ]
+            
+            # For each matching rule, find the corresponding hostname SmartGroup
+            for _, rule_row in matching_rules.iterrows():
+                protocol = rule_row["protocol"]
+                port = rule_row["port"]
+                rule_fqdn_mode = rule_row["fqdn_mode"]
+                
+                # Look up the hostname SmartGroup for this specific combination
+                key = (fqdn_tag, protocol, port, rule_fqdn_mode)
+                
+                if key in hostname_sg_map:
+                    sg_row = hostname_sg_map[key]
+                    sg_name = sg_row["name"]
+                    
+                    src_sg_ref = f"${{aviatrix_smart_group.{cleaned_fqdn_tag}.id}}"
+                    dst_sg_ref = f"${{aviatrix_smart_group.{sg_name}.id}}"
+
+                    action = "PERMIT" if rule_fqdn_mode == "white" else "DENY"
+                    policy_name = (
+                        f"Hostname_{cleaned_fqdn_tag}_"
+                        f"{'permit' if rule_fqdn_mode == 'white' else 'deny'}"
+                    )
+
+                    # Convert port to port_ranges format, handling special cases
+                    if port == "ALL":
+                        port_ranges = None  # No port restrictions for ALL
+                    else:
+                        port_ranges = translate_port_to_port_range([port]) if port else None
+
+                    # Ensure protocol is properly formatted for DCF
+                    dcf_protocol = protocol.upper()
+                    if dcf_protocol == "ALL":
+                        dcf_protocol = "ANY"
+
+                    hostname_policies.append(
+                        {
+                            "src_smart_groups": [src_sg_ref],
+                            "dst_smart_groups": [dst_sg_ref],
+                            "action": action,
+                            "logging": True,
+                            "protocol": dcf_protocol,
+                            "name": policy_name,
+                            "port_ranges": port_ranges,
+                            "web_groups": None,
+                        }
+                    )
+
+        hostname_policies_df = pd.DataFrame(hostname_policies)
+        logging.info(f"Created {len(hostname_policies_df)} source IP hostname-based policies")
+        return hostname_policies_df
+
+    def _build_vpc_hostname_policies(
+        self, gateways_df: pd.DataFrame, fqdn_df: pd.DataFrame, hostname_smartgroups_df: pd.DataFrame, hostname_rules_df: pd.DataFrame
+    ) -> pd.DataFrame:
+        """Build VPC-level hostname policies for FQDN tags WITHOUT source_ip_list."""
+        logging.info(f"_build_vpc_hostname_policies called with gateways_df: {len(gateways_df)} rows")
+        
+        if hostname_smartgroups_df.empty or hostname_rules_df.empty:
+            logging.info("No hostname SmartGroups or hostname rules found")
+            return pd.DataFrame()
+
+        # Get egress VPCs (same logic as in other policy builders)
+        egress_vpcs = self._get_egress_vpcs(gateways_df)
+        if egress_vpcs.empty:
+            logging.info("No egress VPCs found")
+            return pd.DataFrame()
+
+        # Process FQDN tags for egress VPCs
+        egress_vpcs = self._process_fqdn_tags(egress_vpcs, fqdn_df)
+
+        # EXCLUDE FQDN tags that have source IP filters - they should only be handled by _build_source_ip_hostname_policies
+        egress_vpcs_with_enabled_tags = egress_vpcs.explode("fqdn_tags").rename(
+            columns={"fqdn_tags": "fqdn_tag"}
+        )
+        egress_vpcs_with_enabled_tags = egress_vpcs_with_enabled_tags.merge(
+            fqdn_df, on="fqdn_tag", how="left"
+        )
+        egress_vpcs_with_enabled_tags = egress_vpcs_with_enabled_tags[
+            egress_vpcs_with_enabled_tags["fqdn_enabled"].fillna(False) &
+            (egress_vpcs_with_enabled_tags["has_source_ip_filter"].fillna(False) == False)
+        ]
+
+        if egress_vpcs_with_enabled_tags.empty:
+            logging.info("No enabled FQDN tags without source IP filters found")
+            return pd.DataFrame()
+
+        egress_vpcs_with_enabled_tags = egress_vpcs_with_enabled_tags.rename(
+            columns={"fqdn_tag": "fqdn_tag_name"}
+        )
+
+        # Match VPCs to hostname rules to determine which hostname smartgroups they should use
+        vpc_hostname_matches = egress_vpcs_with_enabled_tags.merge(
+            hostname_rules_df[["fqdn_tag_name", "protocol", "port", "fqdn_mode", "fqdn"]],
+            on=["fqdn_tag_name", "fqdn_mode"],
+            how="inner",
+        )
+
+        if vpc_hostname_matches.empty:
+            logging.info("No VPC-hostname rule matches found")
+            return pd.DataFrame()
+
+        # Create hostname SmartGroup mapping for efficient lookup
+        # We need to match VPC FQDN tags to hostname SmartGroups by fqdn_tag_name, protocol, port, and mode
+        hostname_sg_map = {}
+        for _, sg_row in hostname_smartgroups_df.iterrows():
+            # Extract fqdn_tag_name from the SmartGroup name (format: fqdn_{fqdn_tag_name}_{hash})
+            sg_name = sg_row["name"]
+            if sg_name.startswith("fqdn_"):
+                # Extract the fqdn_tag_name by removing the prefix and hash suffix
+                name_parts = sg_name[5:]  # Remove "fqdn_" prefix
+                # Find the last underscore to separate tag name from hash
+                last_underscore = name_parts.rfind("_")
+                if last_underscore > 0:
+                    fqdn_tag_name = name_parts[:last_underscore]
+                    protocol = sg_row["protocol"]
+                    port = sg_row["port"]
+                    fqdn_mode = sg_row["fqdn_mode"]
+                    
+                    # Create unique key for this SmartGroup
+                    key = (fqdn_tag_name, protocol, port, fqdn_mode)
+                    hostname_sg_map[key] = sg_row
+
+        # Now create policies by matching VPC FQDN tags to their corresponding hostname SmartGroups
+        hostname_policies = []
+        for _, vpc_row in vpc_hostname_matches.iterrows():
+            fqdn_tag_name = vpc_row["fqdn_tag_name"]
+            protocol = vpc_row["protocol"]
+            port = vpc_row["port"]
+            fqdn_mode = vpc_row["fqdn_mode"]
+            src_sg_ref = vpc_row["src_smart_groups"]  # This is already a full reference
+            vpc_display_name = vpc_row["vpc_name"]
+            
+            # Look up the hostname SmartGroup for this specific VPC's FQDN tag combination
+            key = (fqdn_tag_name, protocol, port, fqdn_mode)
+            if key in hostname_sg_map:
+                sg_row = hostname_sg_map[key]
+                sg_name = sg_row["name"]
+                
+                dst_sg_ref = f"${{aviatrix_smart_group.{sg_name}.id}}"
+
+                action = "PERMIT" if fqdn_mode == "white" else "DENY"
+                policy_name = (
+                    f"VPC_Hostname_{vpc_display_name}_"
+                    f"{'permit' if fqdn_mode == 'white' else 'deny'}"
+                )
+
+                # Convert port to port_ranges format, handling special cases
+                if port == "ALL":
+                    port_ranges = None  # No port restrictions for ALL
+                else:
+                    port_ranges = translate_port_to_port_range([port]) if port else None
+
+                # Ensure protocol is properly formatted for DCF
+                dcf_protocol = protocol.upper()
+                if dcf_protocol == "ALL":
+                    dcf_protocol = "ANY"
+
+                hostname_policies.append(
+                    {
+                        "src_smart_groups": [src_sg_ref],
+                        "dst_smart_groups": [dst_sg_ref],
+                        "action": action,
+                        "logging": True,
+                        "protocol": dcf_protocol,
+                        "name": policy_name,
+                        "port_ranges": port_ranges,
+                        "web_groups": None,
+                    }
+                )
+
+        hostname_policies_df = pd.DataFrame(hostname_policies)
+        logging.info(f"Created {len(hostname_policies_df)} VPC-level hostname policies")
+        return hostname_policies_df
+
 
 class CatchAllPolicyBuilder(PolicyBuilder):
     """Builds catch-all policies based on VPC default policies."""
@@ -525,7 +880,6 @@ class CatchAllPolicyBuilder(PolicyBuilder):
         # Prepare SmartGroup column naming
         vpcs_and_fw["smart_groups"] = vpcs_and_fw["vpc_id"]
 
-        from utils.data_processing import pretty_parse_vpc_name
 
         vpcs_and_fw["smart_groups"] = pretty_parse_vpc_name(vpcs_and_fw, "smart_groups")
         vpcs_and_fw = self.cleaner.remove_invalid_name_chars(vpcs_and_fw, "smart_groups")
@@ -696,7 +1050,7 @@ class HostnamePolicyBuilder(PolicyBuilder):
 
         # Get egress VPCs (same logic as in build_internet_policies)
         egress_vpcs = gateways_df[
-            (gateways_df["is_hagw"] == "no") & (gateways_df["enable_nat"] == "yes")
+            (gateways_df["is_hagw"] == "no") & (gateways_df["egress_control"] == "Enabled")
         ].drop_duplicates(subset=["vpc_id", "vpc_region", "account_name"])
 
         if len(egress_vpcs) == 0:
@@ -707,7 +1061,6 @@ class HostnamePolicyBuilder(PolicyBuilder):
         egress_vpcs["src_smart_groups"] = egress_vpcs["vpc_id"]
 
         # Clean VPC names for SmartGroup references
-        from utils.data_processing import pretty_parse_vpc_name
 
         egress_vpcs["src_smart_groups"] = pretty_parse_vpc_name(egress_vpcs, "src_smart_groups")
         egress_vpcs = self.cleaner.remove_invalid_name_chars(egress_vpcs, "src_smart_groups")
@@ -726,7 +1079,7 @@ class HostnamePolicyBuilder(PolicyBuilder):
             fqdn_df, on="fqdn_tag", how="left"
         )
         egress_vpcs_with_hostname_tags = egress_vpcs_with_hostname_tags[
-            egress_vpcs_with_hostname_tags["fqdn_enabled"].fillna(False) == True
+            egress_vpcs_with_hostname_tags["fqdn_enabled"].fillna(False)
         ]
         egress_vpcs_with_hostname_tags = egress_vpcs_with_hostname_tags.rename(
             columns={"fqdn_tag": "fqdn_tag_name"}
@@ -840,15 +1193,19 @@ def build_internet_policies(
     internet_sg_id: str = "",
     anywhere_sg_id: str = "",
     default_web_port_ranges: Optional[List[str]] = None,
+    hostname_smartgroups_df: pd.DataFrame = None,
+    hostname_rules_df: pd.DataFrame = None,
 ) -> pd.DataFrame:
-    """Legacy wrapper for building internet policies."""
+    """Legacy wrapper for building internet policies (webgroup and hostname-based)."""
     if default_web_port_ranges is None:
         default_web_port_ranges = ["80", "443"]
 
     builder = InternetPolicyBuilder(
         internet_sg_id, anywhere_sg_id, default_web_port_ranges, any_webgroup_id
     )
-    return builder.build_internet_policies(gateways_df, fqdn_df, webgroups_df)
+    return builder.build_internet_policies(
+        gateways_df, fqdn_df, webgroups_df, hostname_smartgroups_df, hostname_rules_df
+    )
 
 
 def build_catch_all_policies(

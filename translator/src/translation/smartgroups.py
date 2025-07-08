@@ -15,6 +15,7 @@ import pandas as pd
 sys.path.append(str(Path(__file__).parent.parent))
 from config import TranslationConfig
 from data.processors import DataCleaner
+from translation.source_ip_smartgroups import SourceIPSmartGroupManager
 
 
 class SmartGroupBuilder:
@@ -270,9 +271,10 @@ class SmartGroupBuilder:
 class SmartGroupManager:
     """Manages SmartGroup operations and provides high-level interface."""
 
-    def __init__(self, config: TranslationConfig):
+    def __init__(self, config: TranslationConfig, asset_matcher=None):
         self.config = config
         self.builder = SmartGroupBuilder(config)
+        self.source_ip_manager = SourceIPSmartGroupManager(config, asset_matcher)
         self.logger = logging.getLogger(__name__)
 
     def create_all_smartgroups(
@@ -281,6 +283,7 @@ class SmartGroupManager:
         fw_tag_df: pd.DataFrame,
         gateways_df: pd.DataFrame,
         hostname_rules_df: Optional[pd.DataFrame] = None,
+        fqdn_df: Optional[pd.DataFrame] = None,
     ) -> Dict[str, pd.DataFrame]:
         """
         Create all types of SmartGroups and return organized results.
@@ -290,6 +293,7 @@ class SmartGroupManager:
             fw_tag_df: Firewall tags DataFrame
             gateways_df: Gateways DataFrame
             hostname_rules_df: Optional hostname rules DataFrame
+            fqdn_df: Optional FQDN DataFrame for source IP SmartGroups
 
         Returns:
             Dictionary containing different types of SmartGroups
@@ -306,21 +310,59 @@ class SmartGroupManager:
         if hostname_rules_df is not None and not hostname_rules_df.empty:
             hostname_smartgroups = self.builder.build_hostname_smartgroups(hostname_rules_df)
             results["hostname_smartgroups"] = hostname_smartgroups
-
-            # Merge hostname SmartGroups with standard ones for complete list
-            hostname_sg_for_export = hostname_smartgroups[["name", "selector"]].copy()
-            complete_smartgroups = pd.concat(
-                [standard_smartgroups, hostname_sg_for_export], ignore_index=True
-            )
-            results["complete_smartgroups"] = complete_smartgroups
         else:
             results["hostname_smartgroups"] = pd.DataFrame(columns=["name", "selector"])
-            results["complete_smartgroups"] = standard_smartgroups
+
+        # Create source IP SmartGroups if FQDN data is provided
+        source_ip_smartgroups_list = []
+        if fqdn_df is not None and not fqdn_df.empty:
+            source_ip_smartgroups_list = self.source_ip_manager.process_fqdn_source_ip_lists(fqdn_df)
+
+            # Convert to DataFrame format for consistency
+            if source_ip_smartgroups_list:
+                source_ip_sg_df = pd.DataFrame([
+                    {"name": sg["name"], "selector": sg["selector"]}
+                    for sg in source_ip_smartgroups_list
+                ])
+                results["source_ip_smartgroups"] = source_ip_sg_df
+            else:
+                results["source_ip_smartgroups"] = pd.DataFrame(columns=["name", "selector"])
+        else:
+            results["source_ip_smartgroups"] = pd.DataFrame(columns=["name", "selector"])
+
+        # Merge all SmartGroups for complete list
+        smartgroup_dfs = [
+            standard_smartgroups,
+            results["hostname_smartgroups"][["name", "selector"]] if not results["hostname_smartgroups"].empty else pd.DataFrame(columns=["name", "selector"]),
+            results["source_ip_smartgroups"]
+        ]
+
+        # Filter out empty DataFrames and concatenate
+        non_empty_dfs = [df for df in smartgroup_dfs if not df.empty]
+        if non_empty_dfs:
+            complete_smartgroups = pd.concat(non_empty_dfs, ignore_index=True)
+        else:
+            complete_smartgroups = pd.DataFrame(columns=["name", "selector"])
+
+        results["complete_smartgroups"] = complete_smartgroups
 
         # Log summary
         self.logger.info("SmartGroup creation summary:")
         self.logger.info(f"  Standard SmartGroups: {len(results['standard_smartgroups'])}")
         self.logger.info(f"  Hostname SmartGroups: {len(results['hostname_smartgroups'])}")
+        self.logger.info(f"  Source IP SmartGroups: {len(results['source_ip_smartgroups'])}")
         self.logger.info(f"  Total SmartGroups: {len(results['complete_smartgroups'])}")
 
         return results
+
+    def get_source_ip_smartgroup_reference(self, fqdn_tag: str) -> Optional[str]:
+        """
+        Get the Terraform reference for a source IP SmartGroup by FQDN tag.
+
+        Args:
+            fqdn_tag: FQDN tag name
+
+        Returns:
+            Terraform reference string or None if not found
+        """
+        return self.source_ip_manager.get_source_ip_smartgroup_reference(fqdn_tag)

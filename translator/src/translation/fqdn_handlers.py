@@ -20,7 +20,6 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
-
 from config import TranslationConfig
 from data.processors import DataCleaner
 
@@ -368,7 +367,7 @@ class FQDNPolicyBuilder:
 
         # Get egress VPCs (same logic as in build_internet_policies)
         egress_vpcs = gateways_df[
-            (gateways_df["is_hagw"] == "no") & (gateways_df["enable_nat"] == "yes")
+            (gateways_df["is_hagw"] == "no") & (gateways_df["egress_control"] == "Enabled")
         ].drop_duplicates(subset=["vpc_id", "vpc_region", "account_name"])
 
         if len(egress_vpcs) == 0:
