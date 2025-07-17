@@ -159,13 +159,16 @@ class SourceIPSmartGroupManager:
     def _create_advanced_smartgroups(self, fqdn_tag: str, source_ips: List[str]) -> List[Dict[str, Any]]:
         """
         Create advanced asset-based SmartGroups for source IP filtering.
+        
+        For FQDN tags with multiple gw_filter_tag_lists, consolidate all source IPs
+        into a single SmartGroup instead of creating separate SmartGroups per asset.
 
         Args:
             fqdn_tag: Name of the FQDN tag
             source_ips: List of source IP addresses/CIDRs
 
         Returns:
-            List of SmartGroup definitions (asset-based or fallback to simple)
+            List containing a single SmartGroup definition (asset-based or fallback to simple)
         """
         if not self.asset_matcher:
             self.logger.warning("Asset matcher not available, falling back to simple mode")
@@ -174,29 +177,119 @@ class SourceIPSmartGroupManager:
         # Get asset matching summary
         match_summary = self.asset_matcher.get_matching_assets_summary(source_ips)
 
-        asset_smartgroups = []
+        # For FQDN tags with multiple gw_filter_tag_lists, consolidate all IPs into a single SmartGroup
+        # This ensures proper consolidation regardless of asset matches
+        return self._create_consolidated_smartgroup(fqdn_tag, source_ips, match_summary)
+
+    def _create_consolidated_smartgroup(self, fqdn_tag: str, source_ips: List[str], match_summary: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Create a single consolidated SmartGroup for all source IPs from an FQDN tag.
+        
+        This method consolidates all source IPs from multiple gw_filter_tag_lists into
+        a single SmartGroup, choosing the best representation (asset-based or CIDR-based).
+        
+        Args:
+            fqdn_tag: Name of the FQDN tag
+            source_ips: List of all source IP addresses/CIDRs
+            match_summary: Asset matching summary from AssetMatcher
+            
+        Returns:
+            List containing a single consolidated SmartGroup definition
+        """
+        matches = match_summary["matches"]
         unmatched_ips = match_summary["unmatched_ips"]
+        
+        # If we have asset matches, try to create a consolidated asset-based SmartGroup
+        if matches:
+            # Group matches by asset to find the most common or representative asset
+            asset_groups = self._group_matches_by_asset(matches)
+            
+            # Choose the asset group with the most matches for consolidation
+            best_asset_key = max(asset_groups.keys(), key=lambda k: len(asset_groups[k]))
+            best_asset_matches = asset_groups[best_asset_key]
+            
+            # Create a consolidated asset-based SmartGroup
+            consolidated_smartgroup = self._create_consolidated_asset_smartgroup(
+                fqdn_tag, best_asset_key, best_asset_matches, source_ips
+            )
+            
+            if consolidated_smartgroup:
+                self.logger.info(f"Created consolidated asset-based SmartGroup for tag: {fqdn_tag}")
+                return [consolidated_smartgroup]
+        
+        # Fall back to simple CIDR-based SmartGroup if no good asset matches
+        self.logger.info(f"No suitable asset matches found for FQDN tag: {fqdn_tag}, using simple CIDR-based SmartGroup")
+        return self._create_simple_smartgroups(fqdn_tag, source_ips)
 
-        # Create asset-based SmartGroups for matched IPs
-        asset_groups = self._group_matches_by_asset(match_summary["matches"])
-
-        for asset_key, asset_matches in asset_groups.items():
-            smartgroup_def = self._create_asset_smartgroup(fqdn_tag, asset_key, asset_matches)
-            if smartgroup_def:
-                asset_smartgroups.append(smartgroup_def)
-
-        # Create simple SmartGroup for unmatched IPs if any
-        if unmatched_ips:
-            self.logger.info(f"Creating fallback SmartGroup for {len(unmatched_ips)} unmatched IPs")
-            fallback_smartgroups = self._create_simple_smartgroups(f"{fqdn_tag}_unmatched", unmatched_ips)
-            asset_smartgroups.extend(fallback_smartgroups)
-
-        if not asset_smartgroups:
-            self.logger.warning(f"No asset matches found for FQDN tag: {fqdn_tag}, falling back to simple mode")
-            return self._create_simple_smartgroups(fqdn_tag, source_ips)
-
-        self.logger.info(f"Created {len(asset_smartgroups)} advanced SmartGroups for tag: {fqdn_tag}")
-        return asset_smartgroups
+    def _create_consolidated_asset_smartgroup(self, fqdn_tag: str, asset_key: str, asset_matches: List[Dict[str, Any]], all_source_ips: List[str]) -> Optional[Dict[str, Any]]:
+        """
+        Create a consolidated asset-based SmartGroup that includes all source IPs.
+        
+        Args:
+            fqdn_tag: FQDN tag name
+            asset_key: Representative asset key
+            asset_matches: Asset matches for the representative asset
+            all_source_ips: All source IPs from all gw_filter_tag_lists
+            
+        Returns:
+            Consolidated SmartGroup definition or None if invalid
+        """
+        if not asset_matches:
+            return None
+        
+        # Get asset information from the representative asset
+        first_match = asset_matches[0]
+        asset_name = first_match.get("asset_name", "")
+        account_name = first_match.get("account_name", "")
+        asset_type = first_match.get("asset_type", "vm")
+        
+        # Handle fallback naming when asset_name is empty
+        if not asset_name or asset_name.strip() == "":
+            if all_source_ips:
+                asset_name = all_source_ips[0].replace("/", "_").replace(".", "_")
+            else:
+                asset_name = "unknown"
+        
+        # Use the FQDN tag name directly for consistent naming
+        cleaned_tag_name = self._clean_name(fqdn_tag)
+        smartgroup_name = cleaned_tag_name
+        
+        # Ensure unique naming
+        smartgroup_name = self._ensure_unique_name(smartgroup_name)
+        
+        # Create match expressions for ALL source IPs (both matched and unmatched)
+        match_expressions = []
+        
+        # Add CIDR match expressions for all source IPs
+        for source_ip in all_source_ips:
+            normalized_cidr = self._normalize_cidr(source_ip)
+            if normalized_cidr:
+                match_expressions.append({"cidr": normalized_cidr})
+        
+        if not match_expressions:
+            self.logger.warning(f"No valid source IPs found for consolidated SmartGroup: {fqdn_tag}")
+            return None
+        
+        smartgroup_def = {
+            "name": smartgroup_name,
+            "selector": {
+                "match_expressions": match_expressions
+            },
+            "source_type": "fqdn_source_ip_consolidated",
+            "fqdn_tag": fqdn_tag,
+            "all_source_ips": all_source_ips,
+            "representative_asset": {
+                "asset_name": asset_name,
+                "asset_type": asset_type,
+                "account_name": account_name
+            }
+        }
+        
+        # Register the SmartGroup
+        self._register_smartgroup(smartgroup_name, smartgroup_def)
+        
+        self.logger.info(f"Created consolidated SmartGroup: {smartgroup_name} for FQDN tag: {fqdn_tag} with {len(all_source_ips)} source IPs")
+        return smartgroup_def
 
     def _group_matches_by_asset(self, matches: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
         """
