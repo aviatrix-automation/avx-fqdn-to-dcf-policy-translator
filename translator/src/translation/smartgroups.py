@@ -122,14 +122,24 @@ class SmartGroupBuilder:
         # Get unique VPCs
         vpcs = gateways_df.drop_duplicates(subset=["vpc_id", "vpc_region", "account_name"]).copy()
 
-        # Use the full vpc_id with invalid characters cleaned for both SmartGroup name and selector
+        # Use the full vpc_id with invalid characters cleaned for SmartGroup name
         vpcs["vpc_name_attr"] = self.cleaner.pretty_parse_vpc_name(vpcs, "vpc_id")
+
+        # Extract the actual VPC name from vpc_id (format: vpc-{id}~~{vpc_name})
+        def extract_vpc_name(vpc_id: str) -> str:
+            if "~~" in vpc_id:
+                return vpc_id.split("~~")[1]  # Get the part after ~~
+            else:
+                # Fallback: if no ~~, use the cleaned full vpc_id
+                return self.cleaner.pretty_parse_vpc_name(pd.DataFrame({"vpc_id": [vpc_id]}), "vpc_id").iloc[0]
+        
+        vpcs["actual_vpc_name"] = vpcs["vpc_id"].apply(extract_vpc_name)
 
         # Create selectors for VPC matching
         vpcs["selector"] = vpcs.apply(
             lambda row: {
                 "match_expressions": {
-                    "name": row["vpc_name_attr"],
+                    "name": row["actual_vpc_name"],  # Use actual VPC name
                     "region": row["vpc_region"],
                     "account_name": row["account_name"],
                     "type": "vpc",
