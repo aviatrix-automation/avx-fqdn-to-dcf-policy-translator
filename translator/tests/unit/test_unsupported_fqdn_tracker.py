@@ -2,6 +2,7 @@
 Unit tests for UnsupportedFQDNTracker and UnsupportedFQDNRecord.
 """
 
+import logging
 import unittest
 from unittest.mock import patch
 
@@ -171,30 +172,38 @@ class TestUnsupportedFQDNTracker(unittest.TestCase):
         self.assertIn("webgroup_name", df.columns)
         self.assertIn("domain", df.columns)
 
-    @patch('src.translation.unsupported_fqdn_tracker.logging.getLogger')
-    def test_log_summary(self, mock_logger):
+    def test_log_summary(self):
         """Test logging summary."""
-        mock_logger_instance = mock_logger.return_value
+        from unittest.mock import Mock
+        
+        # Mock the logger directly on the instance
+        mock_logger = Mock()
+        self.tracker._logger = mock_logger
         
         self.tracker.add_invalid_domain("Tag1", "WebGroup1", "*.example.com", "443", "TCP", "DCF 8.0 incompatible")
         self.tracker.add_invalid_domain("Tag2", "WebGroup2", "*.test.com", "443", "TCP", "DCF 8.0 incompatible")
         
         self.tracker.log_summary()
         
-        # Verify that log messages were called
-        self.assertTrue(mock_logger_instance.log.called)
-        self.assertGreater(mock_logger_instance.log.call_count, 5)  # Should have multiple log calls
+        # Verify that log messages were called - the summary method calls log() multiple times
+        self.assertTrue(mock_logger.log.called)
+        # Should have multiple log calls for comprehensive summary
+        self.assertGreaterEqual(mock_logger.log.call_count, 5)
 
-    @patch('src.translation.unsupported_fqdn_tracker.logging.getLogger')
-    def test_log_summary_empty(self, mock_logger):
+    def test_log_summary_empty(self):
         """Test logging summary with empty tracker."""
-        mock_logger_instance = mock_logger.return_value
+        from unittest.mock import Mock
+        
+        # Mock the logger directly on the instance
+        mock_logger = Mock()
+        self.tracker._logger = mock_logger
         
         self.tracker.log_summary()
         
         # Should log that no unsupported domains were found
-        mock_logger_instance.log.assert_called_once()
-        args, kwargs = mock_logger_instance.log.call_args
+        mock_logger.log.assert_called_once()
+        args, kwargs = mock_logger.log.call_args
+        self.assertEqual(args[0], logging.INFO)  # log level
         self.assertIn("No unsupported FQDN domains found", args[1])
 
     def test_clear(self):

@@ -76,13 +76,14 @@ class TestWebGroupBuilder:
     def test_translate_fqdn_to_selector_basic(self):
         """Test FQDN list to selector translation."""
         builder = WebGroupBuilder()
-        
+
         fqdn_list = ['example.com', 'test.com']
         result = builder._translate_fqdn_to_selector(fqdn_list)
-        
+
         expected = {
             'match_expressions': [
-                {'type': 'fqdn', 'fqdn': ['example.com', 'test.com']}
+                {'snifilter': 'example.com'},
+                {'snifilter': 'test.com'}
             ]
         }
         assert result == expected
@@ -90,13 +91,11 @@ class TestWebGroupBuilder:
     def test_translate_fqdn_to_selector_empty_list(self):
         """Test FQDN list to selector translation with empty list."""
         builder = WebGroupBuilder()
-        
+
         result = builder._translate_fqdn_to_selector([])
-        
+
         expected = {
-            'match_expressions': [
-                {'type': 'fqdn', 'fqdn': []}
-            ]
+            'match_expressions': []
         }
         assert result == expected
 
@@ -108,7 +107,7 @@ class TestWebGroupBuilder:
         
         expected = {
             'match_expressions': [
-                {'type': 'fqdn', 'fqdn': ['single.com']}
+                {'snifilter': 'single.com'}
             ]
         }
         assert result == expected
@@ -117,15 +116,18 @@ class TestWebGroupBuilder:
     def test_filter_and_create_selector_valid_domains(self, mock_filter):
         """Test filtering and selector creation with valid domains."""
         builder = WebGroupBuilder()
-        
+
         # Mock the filter to return all domains as valid
         mock_filter.return_value = (['example.com', 'test.com'], [])
-        
+
         row = pd.Series({
             'name': 'test-webgroup',
-            'fqdn': ['example.com', 'test.com']
+            'fqdn': ['example.com', 'test.com'],
+            'fqdn_tag_name': 'test-tag',
+            'protocol': 'tcp',
+            'port': '443'
         })
-        
+
         result = builder.filter_and_create_selector(row)
         
         expected = {
@@ -134,21 +136,22 @@ class TestWebGroupBuilder:
             ]
         }
         assert result == expected
-        assert builder.all_invalid_domains == []
-
-    @patch('src.translation.webgroups.FQDNValidator.filter_domains_for_dcf_compatibility')
+        assert builder.all_invalid_domains == []    @patch('src.translation.webgroups.FQDNValidator.filter_domains_for_dcf_compatibility')
     def test_filter_and_create_selector_some_invalid(self, mock_filter):
         """Test filtering and selector creation with some invalid domains."""
         builder = WebGroupBuilder()
-        
+
         # Mock the filter to return some domains as invalid
         mock_filter.return_value = (['example.com'], ['invalid..domain'])
-        
+
         row = pd.Series({
             'name': 'test-webgroup',
-            'fqdn': ['example.com', 'invalid..domain']
+            'fqdn': ['example.com', 'invalid..domain'],
+            'fqdn_tag_name': 'test-tag',
+            'protocol': 'tcp',
+            'port': '443'
         })
-        
+
         result = builder.filter_and_create_selector(row)
         
         expected = {
@@ -385,10 +388,11 @@ class TestLegacyFunctions:
         """Test the legacy translate_fqdn_tag_to_sg_selector function."""
         fqdn_list = ['example.com', 'test.com']
         result = translate_fqdn_tag_to_sg_selector(fqdn_list)
-        
+
         expected = {
             'match_expressions': [
-                {'type': 'fqdn', 'fqdn': ['example.com', 'test.com']}
+                {'snifilter': 'example.com'},
+                {'snifilter': 'test.com'}
             ]
         }
         assert result == expected

@@ -367,7 +367,8 @@ class TestHostnamePolicyBuilder:
             'account_name': ['account1'],
             'is_hagw': ['no'],
             'enable_nat': ['yes'],
-            'fqdn_tags': [['tag1']]
+            'fqdn_tags': [['tag1']],
+            'egress_control': ['Enabled']  # Added missing column
         })
 
         fqdn_df = pd.DataFrame({
@@ -424,7 +425,8 @@ class TestHostnamePolicyBuilder:
             'account_name': ['account1', 'account2'],
             'is_hagw': ['no', 'no'],
             'enable_nat': ['yes', 'yes'],
-            'fqdn_tags': [['tag1'], ['tag2']]
+            'fqdn_tags': [['tag1'], ['tag2']],
+            'egress_control': ['Enabled', 'Enabled']  # Added missing column
         })
 
         fqdn_df = pd.DataFrame({

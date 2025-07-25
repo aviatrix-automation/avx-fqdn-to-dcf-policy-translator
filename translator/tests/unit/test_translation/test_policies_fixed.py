@@ -63,20 +63,14 @@ class TestL4PolicyBuilder:
 
         assert len(result_df) == 0
 
-    @patch('src.translation.policies.translate_port_to_port_range')
-    @patch('src.translation.policies.is_ipv4')
-    def test_build_l4_policies_basic(self, mock_is_ipv4, mock_port_func):
+    def test_build_l4_policies_basic(self):
         """Test basic L4 policy building."""
-        # Configure mocks - need to return the same for consolidation to work
-        mock_is_ipv4.side_effect = lambda x: x in ['192.168.1.1', '10.0.0.1']
-        mock_port_func.side_effect = lambda ports: [f"port:{port}" for port in ports]
-
         builder = L4PolicyBuilder(
             internet_sg_id="internet-sg-123",
             anywhere_sg_id="anywhere-sg-456"
         )
 
-        # Create test data with same src/dst for consolidation
+        # Create test data with same src/dst for consolidation - use real ports that work
         fw_policy_df = pd.DataFrame({
             'src_ip': ['192.168.1.1', '192.168.1.1'],
             'dst_ip': ['10.0.0.1', '10.0.0.1'],
@@ -101,7 +95,7 @@ class TestL4PolicyBuilder:
     def test_build_l4_policies_consolidation(self, mock_is_ipv4, mock_port_func):
         """Test policy consolidation by grouping ports."""
         mock_is_ipv4.return_value = True
-        mock_port_func.side_effect = lambda ports: [f"port:{port}" for port in ports]
+        mock_port_func.side_effect = lambda ports: [{'lo': str(port), 'hi': '0'} for port in ports]
 
         builder = L4PolicyBuilder(
             internet_sg_id="internet-sg-123",
@@ -153,7 +147,7 @@ class TestL4PolicyBuilder:
     def test_build_l4_policies_protocol_normalization(self):
         """Test protocol normalization to DCF format."""
         with patch('src.translation.policies.is_ipv4', return_value=True):
-            with patch('src.translation.policies.translate_port_to_port_range', return_value=['80']):
+            with patch('src.translation.policies.translate_port_to_port_range', return_value=[{'lo': '80', 'hi': '0'}]):
                 builder = L4PolicyBuilder(
                     internet_sg_id="internet-sg-123",
                     anywhere_sg_id="anywhere-sg-456"
@@ -241,7 +235,7 @@ class TestInternetPolicyBuilder:
         })
 
         # Mock the pretty_parse_vpc_name function that gets imported
-        with patch('src.translation.policies.pretty_parse_vpc_name') as mock_vpc_func:
+        with patch('src.data.processors.DataCleaner.pretty_parse_vpc_name') as mock_vpc_func:
             mock_vpc_func.return_value = gateways_df.copy()  # Return DataFrame as-is
             result_df = builder.build_internet_policies(gateways_df, fqdn_df, webgroups_df)
 
@@ -276,7 +270,9 @@ class TestCatchAllPolicyBuilder:
         empty_df = pd.DataFrame()
         result_df = builder.build_catch_all_policies(empty_df, empty_df)
 
-        assert len(result_df) == 0
+        # CatchAllPolicyBuilder always creates a global catch-all policy
+        assert len(result_df) == 1
+        assert result_df.iloc[0]["action"] == "DENY"
 
     def test_build_catch_all_policies_basic(self):
         """Test basic catch-all policy building."""
@@ -299,7 +295,7 @@ class TestCatchAllPolicyBuilder:
         })
 
         # Mock the pretty_parse_vpc_name function
-        with patch('src.translation.policies.pretty_parse_vpc_name') as mock_vpc_func:
+        with patch('src.data.processors.DataCleaner.pretty_parse_vpc_name') as mock_vpc_func:
             mock_vpc_func.return_value = gateways_df.copy()
             result_df = builder.build_catch_all_policies(gateways_df, firewall_df)
 
@@ -348,6 +344,7 @@ class TestHostnamePolicyBuilder:
             'account_name': ['account1'],
             'is_hagw': ['no'],
             'enable_nat': ['yes'],
+            'egress_control': ['Enabled'],
             'fqdn_tags': [['tag1']]
         })
 
@@ -370,7 +367,7 @@ class TestHostnamePolicyBuilder:
         })
 
         # Mock the pretty_parse_vpc_name function
-        with patch('src.translation.policies.pretty_parse_vpc_name') as mock_vpc_func:
+        with patch('src.data.processors.DataCleaner.pretty_parse_vpc_name') as mock_vpc_func:
             mock_vpc_func.return_value = gateways_df.copy()
             result_df = builder.build_hostname_policies(
                 gateways_df, fqdn_df, hostname_smartgroups_df, hostname_rules_df
@@ -394,6 +391,7 @@ class TestHostnamePolicyBuilder:
             'account_name': ['account1', 'account2'],
             'is_hagw': ['no', 'no'],
             'enable_nat': ['yes', 'yes'],
+            'egress_control': ['Enabled', 'Enabled'],
             'fqdn_tags': [['tag1'], ['tag2']]
         })
 
@@ -419,7 +417,7 @@ class TestHostnamePolicyBuilder:
         })
 
         # Mock the function and test
-        with patch('src.translation.policies.pretty_parse_vpc_name') as mock_vpc_func:
+        with patch('src.data.processors.DataCleaner.pretty_parse_vpc_name') as mock_vpc_func:
             mock_vpc_func.return_value = gateways_df.copy()
             result_df = builder.build_hostname_policies(
                 gateways_df, fqdn_df, hostname_smartgroups_df, hostname_rules_df
@@ -468,7 +466,7 @@ class TestPolicyBuildersIntegration:
         # Test L4PolicyBuilder output format
         l4_builder = L4PolicyBuilder(internet_sg_id, anywhere_sg_id)
         with patch('src.translation.policies.is_ipv4', return_value=True):
-            with patch('src.translation.policies.translate_port_to_port_range', return_value=['80']):
+            with patch('src.translation.policies.translate_port_to_port_range', return_value=[{'lo': '80', 'hi': '0'}]):
                 test_df = pd.DataFrame({
                     'src_ip': ['192.168.1.1'], 'dst_ip': ['10.0.0.1'],
                     'protocol': ['tcp'], 'port': ['80'], 'action': ['allow'], 'log_enabled': ['TRUE']
@@ -503,7 +501,8 @@ class TestPolicyBuildersIntegration:
         # Test CatchAllPolicyBuilder
         catch_all_builder = CatchAllPolicyBuilder(internet_sg_id, anywhere_sg_id, "DENY")
         result = catch_all_builder.build_catch_all_policies(empty_df, empty_df)
-        assert len(result) == 0
+        # CatchAllPolicyBuilder always creates a global catch-all policy
+        assert len(result) == 1
 
         # Test HostnamePolicyBuilder
         hostname_builder = HostnamePolicyBuilder(internet_sg_id, anywhere_sg_id)

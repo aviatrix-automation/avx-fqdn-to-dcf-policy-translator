@@ -16,7 +16,7 @@ from unittest.mock import Mock
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-from config import TranslationConfig
+from src.config import TranslationConfig
 
 
 # Test data directory
@@ -149,6 +149,20 @@ def mock_logger():
 def empty_dataframe():
     """Create an empty DataFrame for testing edge cases."""
     return pd.DataFrame()
+
+
+@pytest.fixture
+def create_test_smartgroup_df():
+    """Create a factory function for generating test SmartGroup DataFrames."""
+    def _create_smartgroup_df(smartgroup_names: List[str]) -> pd.DataFrame:
+        data = []
+        for name in smartgroup_names:
+            data.append({
+                "name": name,
+                "selector": {"match_expressions": [{"cidr": "192.168.1.0/24"}]}
+            })
+        return pd.DataFrame(data)
+    return _create_smartgroup_df
 
 
 @pytest.fixture

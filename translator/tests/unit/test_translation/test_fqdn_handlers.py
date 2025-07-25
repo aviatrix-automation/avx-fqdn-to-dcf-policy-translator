@@ -316,11 +316,11 @@ class TestWebGroupBuilder:
             'fqdn_tag_name', 'protocol', 'port', 'fqdn_mode', 'fqdn'
         ])
         
-        # Empty DataFrame operations in pandas can be problematic with apply() functions
-        # that return dictionaries. The actual implementation would need to check for
-        # empty DataFrames before applying transformations.
-        with pytest.raises(ValueError, match="Cannot set a DataFrame with multiple columns"):
-            result_df = builder.build_webgroup_df(empty_df)
+        # The current implementation should handle empty DataFrames gracefully
+        result_df = builder.build_webgroup_df(empty_df)
+        
+        # Should return an empty DataFrame
+        assert len(result_df) == 0
 
 
 class TestHostnameSmartGroupBuilder:
