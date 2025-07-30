@@ -8,6 +8,7 @@ pandas==2.2.3
 prompt_toolkit==3.0.48
 pyhcl==0.4.5
 python-dateutil==2.9.0.post0
+python-hcl2==7.3.1
 pytz==2024.2
 requests==2.31.0
 setuptools==78.1.1

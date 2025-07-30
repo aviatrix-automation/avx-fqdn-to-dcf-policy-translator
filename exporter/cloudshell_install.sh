@@ -112,7 +112,7 @@ main() {
     
     # Download requirements.txt
     show_progress "Downloading requirements.txt"
-    if curl -fsSL "https://raw.githubusercontent.com/aviatrix-automation/avx-fqdn-to-dcf-policy-translator/refs/heads/main/requirements.txt" -o requirements.txt; then
+    if curl -fsSL "https://raw.githubusercontent.com/aviatrix-automation/avx-fqdn-to-dcf-policy-translator/refs/heads/main/exporter/requirements.txt" -o requirements.txt; then
         show_success "requirements.txt downloaded"
     else
         show_error "Failed to download requirements.txt"
