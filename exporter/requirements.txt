@@ -1,0 +1,17 @@
+# Requirements for Legacy Policy Bundle Exporter
+# Install with: pip install -r requirements.txt
+
+# Core HTTP library for API calls to Aviatrix Controller and CoPilot
+requests>=2.25.0
+
+# Progress bar library for VPC route table collection
+tqdm>=4.60.0
+
+# Standard library modules (included with Python, listed for documentation)
+# argparse - Command line argument parsing
+# getpass - Secure password input
+# json - JSON data handling
+# zipfile - ZIP file creation and extraction
+# io - Input/output operations
+# os - Operating system interface
+# urllib3 - HTTP client (used by requests for SSL warning suppression)
