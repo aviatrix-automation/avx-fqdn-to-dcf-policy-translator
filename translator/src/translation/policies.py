@@ -161,6 +161,9 @@ class InternetPolicyBuilder(PolicyBuilder):
     ) -> pd.DataFrame:
         """
         Build internet egress policies for FQDN traffic (both webgroup and hostname-based).
+        
+        DEPRECATED: Use build_webgroup_policies() and build_hostname_policies() separately
+        for proper priority ordering.
 
         Args:
             gateways_df: DataFrame with gateway details
@@ -172,14 +175,43 @@ class InternetPolicyBuilder(PolicyBuilder):
         Returns:
             DataFrame with internet egress policies
         """
-        logging.info("Building internet egress policies")
+        logging.warning("build_internet_policies is deprecated. Use build_webgroup_policies() and build_hostname_policies() separately.")
+        
+        # For backward compatibility, build both and combine
+        hostname_policies = self.build_hostname_policies(gateways_df, fqdn_df, hostname_smartgroups_df, hostname_rules_df)
+        webgroup_policies = self.build_webgroup_policies(gateways_df, fqdn_df, webgroups_df)
+        
+        policy_dataframes = []
+        if len(hostname_policies) > 0:
+            policy_dataframes.append(hostname_policies)
+        if len(webgroup_policies) > 0:
+            policy_dataframes.append(webgroup_policies)
+            
+        if not policy_dataframes:
+            return pd.DataFrame()
+            
+        return pd.concat(policy_dataframes, ignore_index=True)
 
-        # Debug log basic call
-        logging.info("InternetPolicyBuilder.build_internet_policies called")
+    def build_hostname_policies(
+        self, gateways_df: pd.DataFrame, fqdn_df: pd.DataFrame, 
+        hostname_smartgroups_df: pd.DataFrame = None, hostname_rules_df: pd.DataFrame = None
+    ) -> pd.DataFrame:
+        """
+        Build hostname-based policies for FQDN traffic.
+
+        Args:
+            gateways_df: DataFrame with gateway details
+            fqdn_df: DataFrame with FQDN tag configurations
+            hostname_smartgroups_df: DataFrame with hostname SmartGroup configurations
+            hostname_rules_df: DataFrame with hostname rules
+
+        Returns:
+            DataFrame with hostname policies
+        """
+        logging.info("Building hostname policies")
 
         # Get egress VPCs (non-HAGW with NAT enabled)
         egress_vpcs = self._get_egress_vpcs(gateways_df)
-        logging.info(f"Found {len(egress_vpcs)} egress VPCs")
         if len(egress_vpcs) == 0:
             logging.info("No egress VPCs found")
             return pd.DataFrame()
@@ -187,62 +219,132 @@ class InternetPolicyBuilder(PolicyBuilder):
         # Process FQDN tags and clean disabled tags
         egress_vpcs = self._process_fqdn_tags(egress_vpcs, fqdn_df)
 
-        # Build different types of internet policies
-        policy_dataframes = []
+        # Build hostname policies
+        hostname_policy_dataframes = []
 
-        # 1. FQDN tag-specific policies (webgroup-based)
-        fqdn_policies = self._build_fqdn_tag_policies(egress_vpcs, fqdn_df, webgroups_df)
-        if len(fqdn_policies) > 0:
-            policy_dataframes.append(fqdn_policies)
-
-        # 2. Source IP list FQDN policies (for FQDN tags with source_ip_list SmartGroups)
-        source_ip_policies = self._build_source_ip_fqdn_policies(fqdn_df, webgroups_df)
-        if len(source_ip_policies) > 0:
-            policy_dataframes.append(source_ip_policies)
-
-        # 3. Hostname policies (both VPC-level and source IP-specific)
+        # Hostname policies (both VPC-level and source IP-specific)
         if hostname_smartgroups_df is not None and hostname_rules_df is not None:
-            # 3a. VPC-level hostname policies (exclude source IP tags)
+            # VPC-level hostname policies (exclude source IP tags)
             vpc_hostname_policies = self._build_vpc_hostname_policies(
                 gateways_df, fqdn_df, hostname_smartgroups_df, hostname_rules_df
             )
             if len(vpc_hostname_policies) > 0:
-                policy_dataframes.append(vpc_hostname_policies)
+                hostname_policy_dataframes.append(vpc_hostname_policies)
 
-            # 3b. Source IP hostname policies (source IP tags only)
+            # Source IP hostname policies (source IP tags only)
             source_ip_hostname_policies = self._build_source_ip_hostname_policies(
                 fqdn_df, hostname_smartgroups_df, hostname_rules_df
             )
             if len(source_ip_hostname_policies) > 0:
-                policy_dataframes.append(source_ip_hostname_policies)
+                hostname_policy_dataframes.append(source_ip_hostname_policies)
 
-        # 4. Default policies for FQDN tags
-        default_policies = self._build_fqdn_default_policies(egress_vpcs, fqdn_df)
-        if len(default_policies) > 0:
-            policy_dataframes.append(default_policies)
-
-        # 5. Discovery mode policies
-        discovery_policies = self._build_discovery_policies(egress_vpcs)
-        if len(discovery_policies) > 0:
-            policy_dataframes.extend(discovery_policies)
-
-        # 6. NAT-only policies
-        nat_only_policies = self._build_nat_only_policies(egress_vpcs)
-        if len(nat_only_policies) > 0:
-            policy_dataframes.append(nat_only_policies)
-
-        # Merge all policies
-        if not policy_dataframes:
-            logging.info("No internet policies created")
+        # Merge hostname policies
+        if not hostname_policy_dataframes:
+            logging.info("No hostname policies created")
             return pd.DataFrame()
 
-        internet_policies = pd.concat(policy_dataframes, ignore_index=True)
+        hostname_policies = pd.concat(hostname_policy_dataframes, ignore_index=True)
+        hostname_policies = self._deduplicate_policy_names(hostname_policies)
+        
+        # Add priorities - hostname policies start at 500
+        hostname_policies = hostname_policies.reset_index(drop=True)
+        hostname_policies.index = hostname_policies.index + POLICY_PRIORITIES["hostname_policies"]
+        hostname_policies["priority"] = hostname_policies.index
+
+        logging.info(f"Created {len(hostname_policies)} hostname policies")
+        return hostname_policies
+
+    def build_webgroup_policies(
+        self, gateways_df: pd.DataFrame, fqdn_df: pd.DataFrame, webgroups_df: pd.DataFrame
+    ) -> pd.DataFrame:
+        """
+        Build webgroup-based policies for FQDN traffic.
+
+        Args:
+            gateways_df: DataFrame with gateway details
+            fqdn_df: DataFrame with FQDN tag configurations
+            webgroups_df: DataFrame with WebGroup configurations
+
+        Returns:
+            DataFrame with webgroup policies
+        """
+        logging.info("Building webgroup policies")
+
+        # Get egress VPCs (non-HAGW with NAT enabled)
+        egress_vpcs = self._get_egress_vpcs(gateways_df)
+        if len(egress_vpcs) == 0:
+            logging.info("No egress VPCs found")
+            return pd.DataFrame()
+
+        # Process FQDN tags and clean disabled tags
+        egress_vpcs = self._process_fqdn_tags(egress_vpcs, fqdn_df)
+
+        # Build webgroup policies
+        webgroup_policy_dataframes = []
+
+        # 1. FQDN tag-specific policies (webgroup-based)
+        fqdn_policies = self._build_fqdn_tag_policies(egress_vpcs, fqdn_df, webgroups_df)
+        if len(fqdn_policies) > 0:
+            webgroup_policy_dataframes.append(fqdn_policies)
+
+        # 2. Source IP list FQDN policies (for FQDN tags with source_ip_list SmartGroups)
+        source_ip_policies = self._build_source_ip_fqdn_policies(fqdn_df, webgroups_df)
+        if len(source_ip_policies) > 0:
+            webgroup_policy_dataframes.append(source_ip_policies)
+
+        # 3. Default policies for FQDN tags
+        default_policies = self._build_fqdn_default_policies(egress_vpcs, fqdn_df)
+        if len(default_policies) > 0:
+            webgroup_policy_dataframes.append(default_policies)
+
+        # 4. Discovery mode policies
+        discovery_policies = self._build_discovery_policies(egress_vpcs)
+        if len(discovery_policies) > 0:
+            webgroup_policy_dataframes.extend(discovery_policies)
+
+        # 5. NAT-only policies
+        nat_only_policies = self._build_nat_only_policies(egress_vpcs)
+        if len(nat_only_policies) > 0:
+            webgroup_policy_dataframes.append(nat_only_policies)
+
+        # Merge webgroup policies
+        if not webgroup_policy_dataframes:
+            logging.info("No webgroup policies created")
+            return pd.DataFrame()
+
+        webgroup_policies = pd.concat(webgroup_policy_dataframes, ignore_index=True)
 
         # Sort and prioritize policies
-        internet_policies = self._sort_and_prioritize_policies(internet_policies)
+        def get_policy_priority(row: pd.Series) -> int:
+            web_groups = row["web_groups"]
+            # Check if web_groups is None, NaN, empty list, or contains None values
+            if web_groups is None:
+                is_default_policy = True
+            elif isinstance(web_groups, list):
+                is_default_policy = len(web_groups) == 0 or all(x is None for x in web_groups)
+            else:
+                try:
+                    is_default_policy = pd.isna(web_groups)
+                except (ValueError, TypeError):
+                    is_default_policy = False
 
-        logging.info(f"Created {len(internet_policies)} internet policies")
-        return internet_policies
+            return 2 if is_default_policy else 1  # Default policies come after specific policies
+
+        webgroup_policies["sort_priority"] = webgroup_policies.apply(get_policy_priority, axis=1)
+        webgroup_policies = webgroup_policies.sort_values(["sort_priority"]).drop(
+            columns=["sort_priority"]
+        )
+        webgroup_policies = webgroup_policies.reset_index(drop=True)
+
+        # Deduplicate policy names
+        webgroup_policies = self._deduplicate_policy_names(webgroup_policies)
+
+        # Add priorities - webgroup policies start at 1000
+        webgroup_policies.index = webgroup_policies.index + POLICY_PRIORITIES["webgroup_policies"]
+        webgroup_policies["priority"] = webgroup_policies.index
+
+        logging.info(f"Created {len(webgroup_policies)} webgroup policies")
+        return webgroup_policies
 
     def _get_egress_vpcs(self, gateways_df: pd.DataFrame) -> pd.DataFrame:
         """Get egress VPCs (non-HAGW with egress control enabled)."""
@@ -1217,12 +1319,8 @@ class HostnamePolicyBuilder(PolicyBuilder):
             )
             # Deduplicate policy names
             hostname_policies_df = self._deduplicate_policy_names(hostname_policies_df)
-            # Add priorities - hostname policies get priority 1000+
-            hostname_policies_df = hostname_policies_df.reset_index(drop=True)
-            hostname_policies_df.index = hostname_policies_df.index + 1000
-            hostname_policies_df["priority"] = hostname_policies_df.index
 
-        logging.info(f"Created {len(hostname_policies_df)} hostname-based policies")
+        logging.info(f"Created {len(hostname_policies_df)} VPC-level hostname policies")
         return hostname_policies_df
 
 
@@ -1271,6 +1369,44 @@ def build_internet_policies(
     return builder.build_internet_policies(
         gateways_df, fqdn_df, webgroups_df, hostname_smartgroups_df, hostname_rules_df
     )
+
+
+def build_webgroup_policies(
+    gateways_df: pd.DataFrame,
+    fqdn_df: pd.DataFrame,
+    webgroups_df: pd.DataFrame,
+    any_webgroup_id: str,
+    internet_sg_id: str = "",
+    anywhere_sg_id: str = "",
+    default_web_port_ranges: Optional[List[str]] = None,
+) -> pd.DataFrame:
+    """Wrapper for building webgroup policies only."""
+    if default_web_port_ranges is None:
+        default_web_port_ranges = ["80", "443"]
+
+    builder = InternetPolicyBuilder(
+        internet_sg_id, anywhere_sg_id, default_web_port_ranges, any_webgroup_id
+    )
+    return builder.build_webgroup_policies(gateways_df, fqdn_df, webgroups_df)
+
+
+def build_hostname_policies_only(
+    gateways_df: pd.DataFrame,
+    fqdn_df: pd.DataFrame,
+    hostname_smartgroups_df: pd.DataFrame,
+    hostname_rules_df: pd.DataFrame,
+    internet_sg_id: str = "",
+    anywhere_sg_id: str = "",
+    default_web_port_ranges: Optional[List[str]] = None,
+) -> pd.DataFrame:
+    """Wrapper for building hostname policies only."""
+    if default_web_port_ranges is None:
+        default_web_port_ranges = ["80", "443"]
+
+    builder = InternetPolicyBuilder(
+        internet_sg_id, anywhere_sg_id, default_web_port_ranges, ""
+    )
+    return builder.build_hostname_policies(gateways_df, fqdn_df, hostname_smartgroups_df, hostname_rules_df)
 
 
 def build_catch_all_policies(

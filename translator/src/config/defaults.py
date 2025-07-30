@@ -55,7 +55,14 @@ DCF_CONSTRAINTS = {
 }
 
 # Default policy priorities
-POLICY_PRIORITIES = {"l4_policies": 100, "internet_policies": 200, "catch_all_deny": 65534}
+POLICY_PRIORITIES = {
+    "l4_policies": 100,
+    "hostname_policies": 500,
+    "webgroup_policies": 1000,
+    "catch_all_deny": 3000,
+    # Legacy support - remove in future versions
+    "internet_policies": 1000
+}
 
 # FQDN Source IP List Feature Configuration
 FQDN_SOURCE_IP_CONFIG = {

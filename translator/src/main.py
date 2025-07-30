@@ -203,7 +203,8 @@ def main() -> int:
         from translation.policies import (
             L4PolicyHandler,
             build_catch_all_policies,
-            build_internet_policies,
+            build_hostname_policies_only,
+            build_webgroup_policies,
         )
         from translation.smartgroups import SmartGroupManager
         from utils.data_processing import (
@@ -326,8 +327,19 @@ def main() -> int:
         smartgroups_df.to_csv(config.get_output_file_path("smart_groups_csv"))
 
         # Create policies
-        logging.info("Building internet and hostname policies...")
-        internet_rules_df = build_internet_policies(
+        logging.info("Building hostname policies...")
+        hostname_rules_df = build_hostname_policies_only(
+            gateways_df,
+            fqdn_df,
+            hostname_smartgroups_df,
+            hostname_rules_df,
+            config.internet_sg_id,
+            config.anywhere_sg_id,
+            config.default_web_port_ranges,
+        )
+
+        logging.info("Building webgroup policies...")
+        webgroup_rules_df = build_webgroup_policies(
             gateways_df,
             fqdn_df,
             webgroups_df,
@@ -335,8 +347,6 @@ def main() -> int:
             config.internet_sg_id,
             config.anywhere_sg_id,
             config.default_web_port_ranges,
-            hostname_smartgroups_df,
-            hostname_rules_df,
         )
 
         logging.info("Building catch-all policies...")
@@ -348,13 +358,23 @@ def main() -> int:
             config.global_catch_all_action,
         )
 
-        # Merge all policies
+        # Merge all policies in correct priority order
         logging.info("Merging all policies...")
         policy_dataframes = []
+        
+        # 1. L4 firewall policies (priority 100+)
         if len(fw_policy_df) > 0 and len(l4_dcf_policies_df) > 0:
             policy_dataframes.append(l4_dcf_policies_df)
-        if len(internet_rules_df) > 0:
-            policy_dataframes.append(internet_rules_df)
+            
+        # 2. Hostname policies (priority 500+)
+        if len(hostname_rules_df) > 0:
+            policy_dataframes.append(hostname_rules_df)
+            
+        # 3. Webgroup policies (priority 1000+)
+        if len(webgroup_rules_df) > 0:
+            policy_dataframes.append(webgroup_rules_df)
+            
+        # 4. Catch-all policies (priority 3000+)
         if len(catch_all_rules_df) > 0:
             policy_dataframes.append(catch_all_rules_df)
 
@@ -386,7 +406,8 @@ def main() -> int:
             "webgroups_df": webgroups_df,
             "hostname_smartgroups_df": hostname_smartgroups_df,
             "l4_dcf_policies_df": l4_dcf_policies_df,
-            "internet_rules_df": internet_rules_df,
+            "hostname_rules_df": hostname_rules_df,
+            "webgroup_rules_df": webgroup_rules_df,
             "catch_all_rules_df": catch_all_rules_df,
             "full_policy_list": full_policy_list,
             "unsupported_rules_df": unsupported_rules_df,
@@ -426,7 +447,10 @@ def main() -> int:
 
         # Show final counts
         hostname_sg_count = len(hostname_smartgroups_df) if len(hostname_smartgroups_df) > 0 else 0
-        # hostname_policy_count now included in internet_rules_df, not separate
+        l4_policy_count = len(l4_dcf_policies_df) if len(l4_dcf_policies_df) > 0 else 0
+        hostname_policy_count = len(hostname_rules_df) if len(hostname_rules_df) > 0 else 0
+        webgroup_policy_count = len(webgroup_rules_df) if len(webgroup_rules_df) > 0 else 0
+        catch_all_policy_count = len(catch_all_rules_df) if len(catch_all_rules_df) > 0 else 0
 
         logging.info("Translation completed successfully!")
         smartgroups_total = len(smartgroups_df)
@@ -435,7 +459,11 @@ def main() -> int:
             f"(including {hostname_sg_count} hostname SmartGroups)"
         )
         logging.info(f"WebGroups created: {len(webgroups_df)}")
-        # hostname_policy_count now included in internet_rules_df, not separate
+        logging.info(f"Policy breakdown:")
+        logging.info(f"  - L4 policies (priority 100+): {l4_policy_count}")
+        logging.info(f"  - Hostname policies (priority 500+): {hostname_policy_count}")
+        logging.info(f"  - WebGroup policies (priority 1000+): {webgroup_policy_count}")
+        logging.info(f"  - Catch-all policies (priority 3000+): {catch_all_policy_count}")
         logging.info(f"Total DCF Policies created: {len(full_policy_list)}")
         
         # Log unsupported FQDN summary

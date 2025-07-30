@@ -507,12 +507,8 @@ class FQDNPolicyBuilder:
             )
             # Deduplicate policy names
             hostname_policies_df = self.deduplicate_policy_names(hostname_policies_df)
-            # Add priorities - hostname policies get priority 1000+
+            # Policies will get priorities assigned by the InternetPolicyBuilder
             hostname_policies_df = hostname_policies_df.reset_index(drop=True)
-            hostname_policies_df.index = (
-                hostname_policies_df.index + 1000
-            )  # Hostname policies start at 1000
-            hostname_policies_df["priority"] = hostname_policies_df.index
 
         logging.info(f"Created {len(hostname_policies_df)} hostname-based policies")
         return hostname_policies_df
