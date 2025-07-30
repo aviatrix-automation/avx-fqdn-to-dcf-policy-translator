@@ -238,7 +238,7 @@ The new architecture separates concerns into specialized components:
 **SmartGroups Created From:**
 - **Stateful Firewall Tags** → CIDR-type SmartGroups (preserves tag names)
 - **Individual CIDRs** → Matched to existing tags or new SmartGroups named `cidr_{CIDR}-{mask}`  
-- **VPCs** → SmartGroups with criteria "account, region, name" named `{vpcid}_{displayname}`
+- **VPCs** → SmartGroups with criteria "account, region, name" named `{vpcname}`
 - **FQDN Hostnames** → DNS hostname SmartGroups for non-HTTP/HTTPS traffic
 
 **WebGroups Created From:**
