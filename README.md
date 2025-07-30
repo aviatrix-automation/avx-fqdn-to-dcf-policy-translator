@@ -9,6 +9,8 @@
 > **Report issues:** Submit via [GitHub Issues](https://github.com/aviatrix-automation/legacy-to-dcf-policy-translator/issues), open a support case, or contact your account team.
 >
 > Some features are not currently supported, including advanced wildcard patterns and centralized FQDN (will be added in 8.1) and passthrough configuration (supported in 8.0, but incorporated in the migration script).
+>
+> This translation is designed to translate policy for Controller version 8.0+
 
 This tool migrates legacy stateful firewall and FQDN egress policies to Aviatrix Distributed Cloud Firewall (DCF) using a modular architecture.
 
