@@ -14,9 +14,6 @@ This directory contains the policy translation tools for converting legacy Aviat
   - **`utils/`**: Utility functions and helper methods
   - **`domain/`**: Domain models, constants, and validation logic
 
-### Legacy Script
-- **`translator.py`**: Original monolithic script (maintained for backward compatibility)
-
 ### Testing
 - **`tests/`**: Comprehensive test suite
   - **`unit/`**: Unit tests for all modules
@@ -51,11 +48,6 @@ python src/main.py --validate-only --loglevel INFO
 
 # Custom DCF configuration
 python src/main.py --global-catch-all-action DENY
-```
-
-### Legacy Entry Point (Alternative)
-```bash
-python translator.py [options]
 ```
 
 ## Key Options

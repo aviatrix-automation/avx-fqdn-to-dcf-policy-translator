@@ -28,7 +28,6 @@ This project is organized into two main components:
 - **`translator/`**: Policy translation tool
   - **`src/`**: Modular translator source code
   - **`tests/`**: Comprehensive test suite
-  - **`translator.py`**: Legacy monolithic script (backward compatibility)
 
 ## Architecture Overview
 
@@ -43,22 +42,12 @@ The translator uses a modular architecture for improved maintainability, testing
 - **`translator/src/utils/`**: Utility functions and helper methods
 - **`translator/src/domain/`**: Domain models, constants, and validation logic
 
-### Legacy Script
-- **`translator/translator.py`**: Original monolithic script (maintained for backward compatibility)
-- Both entry points produce identical results
-
 ## Quick Start
 
 ### Primary Entry Point
 ```bash
 cd translator
 python src/main.py [options]
-```
-
-### Legacy Entry Point (Alternative)
-```bash
-cd translator
-python translator.py [options]
 ```
 
 ## Important Topology Requirements for DCF 8.0
@@ -141,12 +130,6 @@ python src/main.py --validate-only --loglevel INFO
 
 # Custom DCF configuration
 python src/main.py --global-catch-all-action DENY
-```
-
-**Legacy Entry Point (Alternative):**
-```bash
-cd translator
-python translator.py [options]
 ```
 
 **Key Options:**
