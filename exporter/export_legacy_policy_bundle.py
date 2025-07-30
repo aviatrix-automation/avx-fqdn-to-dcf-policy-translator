@@ -142,7 +142,7 @@ def get_arguments():
             - username: Username for controller authentication
             - password: Password for controller authentication (prompted if not provided)
             - output: Output ZIP file name (default: 'legacy_policy_bundle.zip')
-            - any_web: Flag to download Any-Web webgroup ID (requires v7.1+)
+            - any_web: Flag to download Any-Web webgroup ID (not required in 7.2+)
             - vpc_routes: Flag to include VPC route table details
             - copilot_ip: CoPilot IP address (optional, will auto-discover if not provided)
             - skip_copilot: Skip CoPilot integration entirely
@@ -516,9 +516,10 @@ def get_any_webgroup_id(controller_ip, cid):
     """
     Retrieve the "Any-Web" webgroup ID from the controller.
     
-    The Any-Web webgroup is a built-in webgroup available in controller v7.1+
+    The Any-Web webgroup is a built-in webgroup
     that represents all web traffic. This ID is required by the translator
-    script and is unique per controller installation.
+    script and is unique per controller installation.  This is only necessary
+    for controller 7.1.  7.2 and later versions have a pre-defined system ID.
     
     Args:
         controller_ip (str): IP address or hostname of the Aviatrix controller

@@ -50,7 +50,7 @@ python src/main.py --debug --loglevel INFO
 python src/main.py --validate-only --loglevel INFO
 
 # Custom DCF configuration
-python src/main.py --global-catch-all-action DENY --any-webgroup-id "custom-webgroup-id"
+python src/main.py --global-catch-all-action DENY
 ```
 
 ### Legacy Entry Point (Alternative)
@@ -74,7 +74,6 @@ python translator.py [options]
 ### DCF Configuration
 - `--internet-sg-id`: Internet security group ID
 - `--anywhere-sg-id`: Anywhere security group ID
-- `--any-webgroup-id`: Any webgroup ID
 - `--default-web-port-ranges`: Default web port ranges (default: 80 443)
 - `--global-catch-all-action {PERMIT,DENY}`: Global catch-all action (default: PERMIT)
 
@@ -85,7 +84,6 @@ python translator.py [options]
 
 1. **Policy Bundle**: Extract the policy bundle from the exporter into the `./input` directory
 2. **Directory Structure**: Create `./input`, `./output`, and optionally `./debug` directories
-3. **Any-Web ID**: Obtain the "Any Webgroup" ID from your target controller (v7.1+)
 
 ## Output Files
 
@@ -145,5 +143,4 @@ The translator uses a modular architecture with clear separation of concerns:
 
 - Python 3.8+
 - Input policy bundle from the exporter tool
-- Valid "Any-Web" webgroup ID from target controller
 - Appropriate directory permissions for file creation

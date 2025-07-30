@@ -117,7 +117,7 @@ python export_legacy_policy_bundle.py -i <controller_ip> -u <username> --skip-co
 
 ### Additional Options
 ```bash
-# Include VPC route tables and Any-Web webgroup
+# Include VPC route tables and Any-Web webgroup (only required in 7.1)
 python export_legacy_policy_bundle.py -i <controller_ip> -u <username> -w -r
 
 # Custom output file
@@ -152,7 +152,7 @@ The script creates a ZIP file containing:
 **Controller Data:**
 - Terraform configuration files (`.tf`) for legacy firewall resources
 - `gateway_details.json`: VPC and gateway information
-- `any_webgroup.json`: Any-Web webgroup ID (if `-w` flag used)
+- `any_webgroup.json`: Any-Web webgroup ID only required in 7.1 (if `-w` flag used)
 - `vpc_route_tables.json`: Route table details (if `-r` flag used)
 
 **CoPilot Data (when available):**
