@@ -271,6 +271,10 @@ def main() -> int:
 
         # Trust the data loader's determination of has_source_ip_filter
         # which is based on actual source_ip_list presence in FQDN config
+        # Add defensive check for has_source_ip_filter column
+        if "has_source_ip_filter" not in fqdn_df.columns:
+            fqdn_df["has_source_ip_filter"] = False
+        
         logging.info(f"FQDN tags with source IP filters: {fqdn_df['has_source_ip_filter'].sum()}")
 
         # Debug log the mappings

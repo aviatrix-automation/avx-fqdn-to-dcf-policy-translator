@@ -59,6 +59,11 @@ class SourceIPSmartGroupManager:
         """
         source_ip_smartgroups = []
 
+        # Add defensive check for has_source_ip_filter column
+        if "has_source_ip_filter" not in fqdn_df.columns:
+            fqdn_df = fqdn_df.copy()
+            fqdn_df["has_source_ip_filter"] = False
+
         # Filter FQDN tags that have source IP filters
         filtered_fqdns = fqdn_df[fqdn_df["has_source_ip_filter"]].copy()
 

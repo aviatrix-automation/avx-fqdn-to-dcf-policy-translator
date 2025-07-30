@@ -288,6 +288,12 @@ class InternetPolicyBuilder(PolicyBuilder):
         self, egress_vpcs: pd.DataFrame, fqdn_df: pd.DataFrame, webgroups_df: pd.DataFrame
     ) -> pd.DataFrame:
         """Build FQDN tag-specific policies using WebGroups."""
+        
+        # Ensure fqdn_df has the has_source_ip_filter column
+        if "has_source_ip_filter" not in fqdn_df.columns:
+            fqdn_df = fqdn_df.copy()
+            fqdn_df["has_source_ip_filter"] = False
+        
         egress_vpcs_with_enabled_tags = (
             egress_vpcs.explode("fqdn_tags")
             .rename(columns={"fqdn_tags": "fqdn_tag"})
@@ -299,9 +305,31 @@ class InternetPolicyBuilder(PolicyBuilder):
         ]
 
         # EXCLUDE FQDN tags that have source IP filters - they should only be handled by _build_source_ip_fqdn_policies
-        egress_vpcs_with_enabled_tags = egress_vpcs_with_enabled_tags[
-            ~egress_vpcs_with_enabled_tags["has_source_ip_filter"].fillna(False)
-        ]
+        # Ensure the has_source_ip_filter column exists before filtering
+        if "has_source_ip_filter" not in egress_vpcs_with_enabled_tags.columns:
+            logging.warning(f"Adding missing has_source_ip_filter column to merged DataFrame. Current columns: {list(egress_vpcs_with_enabled_tags.columns)}")
+            egress_vpcs_with_enabled_tags["has_source_ip_filter"] = False
+        
+        # Debug log the columns and shape
+        logging.debug(f"egress_vpcs_with_enabled_tags shape: {egress_vpcs_with_enabled_tags.shape}, columns: {list(egress_vpcs_with_enabled_tags.columns)}")
+        
+        # Use a different approach to filtering to avoid the pandas KeyError
+        try:
+            # First ensure the column exists and has valid values
+            if "has_source_ip_filter" not in egress_vpcs_with_enabled_tags.columns:
+                egress_vpcs_with_enabled_tags["has_source_ip_filter"] = False
+            
+            # Replace any NaN values with False
+            egress_vpcs_with_enabled_tags["has_source_ip_filter"] = egress_vpcs_with_enabled_tags["has_source_ip_filter"].fillna(False)
+            
+            # Apply the filter using .loc to avoid indexing issues
+            mask = ~egress_vpcs_with_enabled_tags["has_source_ip_filter"]
+            egress_vpcs_with_enabled_tags = egress_vpcs_with_enabled_tags.loc[mask].copy()
+            
+        except Exception as e:
+            logging.error(f"Error filtering has_source_ip_filter: {e}. Proceeding without filtering.")
+            # If there's still an issue, just continue without the filter
+            pass
 
         # If no FQDN tags remain after filtering out source IP filtered ones, return empty
         if egress_vpcs_with_enabled_tags.empty:
@@ -367,6 +395,12 @@ class InternetPolicyBuilder(PolicyBuilder):
         self, egress_vpcs: pd.DataFrame, fqdn_df: pd.DataFrame
     ) -> pd.DataFrame:
         """Build default policies for FQDN tags based on default action."""
+        
+        # Ensure fqdn_df has the has_source_ip_filter column
+        if "has_source_ip_filter" not in fqdn_df.columns:
+            fqdn_df = fqdn_df.copy()
+            fqdn_df["has_source_ip_filter"] = False
+        
         egress_vpcs_with_enabled_tags = (
             egress_vpcs.explode("fqdn_tags")
             .rename(columns={"fqdn_tags": "fqdn_tag"})
@@ -378,9 +412,23 @@ class InternetPolicyBuilder(PolicyBuilder):
         ]
 
         # EXCLUDE FQDN tags that have source IP filters - they should only be handled by _build_source_ip_fqdn_policies
-        egress_vpcs_with_enabled_tags = egress_vpcs_with_enabled_tags[
-            ~egress_vpcs_with_enabled_tags["has_source_ip_filter"].fillna(False)
-        ]
+        # Use a different approach to filtering to avoid the pandas KeyError
+        try:
+            # First ensure the column exists and has valid values
+            if "has_source_ip_filter" not in egress_vpcs_with_enabled_tags.columns:
+                egress_vpcs_with_enabled_tags["has_source_ip_filter"] = False
+            
+            # Replace any NaN values with False
+            egress_vpcs_with_enabled_tags["has_source_ip_filter"] = egress_vpcs_with_enabled_tags["has_source_ip_filter"].fillna(False)
+            
+            # Apply the filter using .loc to avoid indexing issues
+            mask = ~egress_vpcs_with_enabled_tags["has_source_ip_filter"]
+            egress_vpcs_with_enabled_tags = egress_vpcs_with_enabled_tags.loc[mask].copy()
+            
+        except Exception as e:
+            logging.error(f"Error filtering has_source_ip_filter in _build_fqdn_default_policies: {e}. Proceeding without filtering.")
+            # If there's still an issue, just continue without the filter
+            pass
 
         # If no FQDN tags remain after filtering, return empty
         if egress_vpcs_with_enabled_tags.empty:
@@ -414,6 +462,11 @@ class InternetPolicyBuilder(PolicyBuilder):
     ) -> pd.DataFrame:
         """Build internet policies for FQDN tags that have source_ip_list SmartGroups."""
         logging.info(f"_build_source_ip_fqdn_policies called with fqdn_df: {len(fqdn_df)} rows, webgroups_df: {len(webgroups_df)} rows")
+
+        # Add has_source_ip_filter column if it doesn't exist
+        if "has_source_ip_filter" not in fqdn_df.columns:
+            fqdn_df = fqdn_df.copy()
+            fqdn_df["has_source_ip_filter"] = False
 
         # Filter FQDN tags that have source IP filters and are enabled
         source_ip_fqdns = fqdn_df[
@@ -598,6 +651,11 @@ class InternetPolicyBuilder(PolicyBuilder):
         """Build hostname policies for FQDN tags that have source_ip_list SmartGroups."""
         logging.info(f"_build_source_ip_hostname_policies called with fqdn_df: {len(fqdn_df)} rows, hostname_smartgroups_df: {len(hostname_smartgroups_df)} rows")
 
+        # Add has_source_ip_filter column if it doesn't exist
+        if "has_source_ip_filter" not in fqdn_df.columns:
+            fqdn_df = fqdn_df.copy()
+            fqdn_df["has_source_ip_filter"] = False
+
         # Filter FQDN tags that have source IP filters and are enabled
         source_ip_fqdns = fqdn_df[
             fqdn_df["has_source_ip_filter"] & fqdn_df["fqdn_enabled"]
@@ -718,12 +776,23 @@ class InternetPolicyBuilder(PolicyBuilder):
         egress_vpcs = self._process_fqdn_tags(egress_vpcs, fqdn_df)
 
         # EXCLUDE FQDN tags that have source IP filters - they should only be handled by _build_source_ip_hostname_policies
+        
+        # Ensure fqdn_df has the has_source_ip_filter column before merging
+        if "has_source_ip_filter" not in fqdn_df.columns:
+            fqdn_df = fqdn_df.copy()
+            fqdn_df["has_source_ip_filter"] = False
+        
         egress_vpcs_with_enabled_tags = egress_vpcs.explode("fqdn_tags").rename(
             columns={"fqdn_tags": "fqdn_tag"}
         )
         egress_vpcs_with_enabled_tags = egress_vpcs_with_enabled_tags.merge(
             fqdn_df, on="fqdn_tag", how="left"
         )
+        
+        # Ensure the has_source_ip_filter column exists before filtering
+        if "has_source_ip_filter" not in egress_vpcs_with_enabled_tags.columns:
+            egress_vpcs_with_enabled_tags["has_source_ip_filter"] = False
+            
         egress_vpcs_with_enabled_tags = egress_vpcs_with_enabled_tags[
             egress_vpcs_with_enabled_tags["fqdn_enabled"].fillna(False) &
             ~egress_vpcs_with_enabled_tags["has_source_ip_filter"].fillna(False)

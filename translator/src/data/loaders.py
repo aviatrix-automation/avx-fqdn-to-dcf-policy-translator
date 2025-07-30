@@ -117,6 +117,11 @@ class TerraformLoader:
                 df = self._process_fqdn_resources(tf_resource)
             else:
                 df = pd.DataFrame([tf_resource[x] for x in tf_resource.keys()])
+            
+            # Ensure FQDN DataFrames always have the has_source_ip_filter column
+            if resource_name == "fqdn" and not df.empty:
+                if "has_source_ip_filter" not in df.columns:
+                    df["has_source_ip_filter"] = False
 
             # Save debug file if enabled
             if self.config.enable_debug:
