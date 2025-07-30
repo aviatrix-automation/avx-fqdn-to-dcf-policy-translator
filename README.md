@@ -1,5 +1,13 @@
 # Legacy to Distributed Cloud Firewall Policy Translator
 
+> **⚠️ PREVIEW NOTICE**
+> 
+> This migration script is in **Preview** and under active development. Use with caution.
+> 
+> **For assistance:** Reach out to your Aviatrix Account team.
+> 
+> **Report issues:** Submit via [GitHub Issues](https://github.com/aviatrix-automation/legacy-to-dcf-policy-translator/issues), open a support case, or contact your account team.
+
 This tool migrates legacy stateful firewall and FQDN egress policies to Aviatrix Distributed Cloud Firewall (DCF) using a modular architecture.
 
 ## Project Structure
