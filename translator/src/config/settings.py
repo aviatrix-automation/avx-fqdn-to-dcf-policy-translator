@@ -54,6 +54,10 @@ class TranslationConfig:
     global_catch_all_action: str = "PERMIT"
     loglevel: str = "WARNING"
 
+    # Custom Internet SmartGroup configuration
+    enable_custom_internet_smartgroup: bool = True
+    custom_internet_smartgroup_name: str = "Internet_Custom"
+
     # Optional customer/organization context
     customer_name: Optional[str] = None
     organization_name: Optional[str] = None
