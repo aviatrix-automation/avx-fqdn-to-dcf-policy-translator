@@ -76,3 +76,8 @@ requirements-test.txt
 exporter/test_args.py
 exporter/test_upload.py
 translator/CoPilot/
+test_files/*
+test_output/*
+translator/output/*
+translator/debug/*
+translator/llm-context/*
