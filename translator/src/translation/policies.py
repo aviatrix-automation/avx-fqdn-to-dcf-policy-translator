@@ -244,6 +244,29 @@ class InternetPolicyBuilder(PolicyBuilder):
             return pd.DataFrame()
 
         hostname_policies = pd.concat(hostname_policy_dataframes, ignore_index=True)
+
+        # Remove duplicates based on policy configuration fields
+        # Handle list columns by converting them to strings for comparison
+        dedup_columns = ['src_smart_groups', 'dst_smart_groups', 'action', 'protocol', 'port_ranges', 'web_groups']
+        initial_count = len(hostname_policies)
+        
+        # Create a temporary DataFrame with string representations of list columns for deduplication
+        temp_df = hostname_policies.copy()
+        for col in dedup_columns:
+            if col in temp_df.columns:
+                # Convert lists to sorted tuples (then to strings) for consistent comparison
+                temp_df[col] = temp_df[col].apply(
+                    lambda x: str(tuple(sorted(x))) if isinstance(x, list) else str(x)
+                )
+        
+        # Find duplicates using the string representations
+        duplicate_mask = temp_df.duplicated(subset=dedup_columns, keep='first')
+        hostname_policies = hostname_policies[~duplicate_mask].reset_index(drop=True)
+        final_count = len(hostname_policies)
+        
+        if initial_count > final_count:
+            logging.info(f"Removed {initial_count - final_count} duplicate hostname policies")
+        
         hostname_policies = self._deduplicate_policy_names(hostname_policies)
         
         # Add priorities - hostname policies start at 500
