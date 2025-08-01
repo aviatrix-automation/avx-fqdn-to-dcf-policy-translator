@@ -16,6 +16,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from config import TranslationConfig
 from data.processors import DataCleaner
 from translation.source_ip_smartgroups import SourceIPSmartGroupManager
+from translation.internet_smartgroup_resolver import InternetSmartGroupResolver
 
 
 class SmartGroupBuilder:
@@ -225,6 +226,49 @@ class SmartGroupBuilder:
         self.logger.info(f"Created {len(hostname_sg_df)} hostname SmartGroups")
         return hostname_sg_df
 
+    def build_custom_internet_smartgroup(self, gateways_df: pd.DataFrame) -> Optional[Dict[str, Any]]:
+        """
+        Build custom Internet SmartGroup when non-RFC1918/CGNAT VPC CIDRs are detected.
+        
+        This method analyzes VPC CIDR ranges and creates a custom Internet SmartGroup
+        that excludes VPC CIDRs from the Internet address space when necessary.
+        
+        Args:
+            gateways_df: DataFrame containing gateway/VPC data
+            
+        Returns:
+            Custom Internet SmartGroup definition dict or None if not needed
+        """
+        # Check if custom Internet SmartGroup feature is enabled
+        if not getattr(self.config, 'enable_custom_internet_smartgroup', True):
+            self.logger.info("Custom Internet SmartGroup feature is disabled - using standard Internet SmartGroup")
+            return None
+
+        if gateways_df.empty:
+            self.logger.info("No gateway data provided - no custom Internet SmartGroup needed")
+            return None
+
+        # Use InternetSmartGroupResolver to determine if custom SmartGroup is needed
+        custom_sg_name = getattr(self.config, 'custom_internet_smartgroup_name', 'Internet_Custom')
+        resolver = InternetSmartGroupResolver(
+            default_internet_sg_id=self.config.internet_sg_id,
+            custom_internet_sg_name=custom_sg_name
+        )
+        
+        # Log analysis summary
+        resolver.log_analysis_summary(gateways_df)
+        
+        # Get custom SmartGroup definition if needed
+        custom_sg_def = resolver.get_custom_smartgroup_definition(gateways_df)
+        
+        if custom_sg_def:
+            self.logger.info(f"Created custom Internet SmartGroup: {custom_sg_def['name']}")
+            self.logger.debug(f"Custom Internet SmartGroup excludes VPC CIDRs: {custom_sg_def.get('vpc_cidrs', [])}")
+            return custom_sg_def
+        else:
+            self.logger.info("Custom Internet SmartGroup not required - using standard Internet SmartGroup")
+            return None
+
     def build_smartgroup_df(
         self, fw_policy_df: pd.DataFrame, fw_tag_df: pd.DataFrame, gateways_df: pd.DataFrame
     ) -> pd.DataFrame:
@@ -361,11 +405,25 @@ class SmartGroupManager:
         else:
             results["source_ip_smartgroups"] = pd.DataFrame(columns=["name", "selector"])
 
+        # Create custom Internet SmartGroup if needed
+        custom_internet_sg = self.builder.build_custom_internet_smartgroup(gateways_df)
+        if custom_internet_sg:
+            # Convert custom Internet SmartGroup to DataFrame format
+            custom_internet_df = pd.DataFrame([{
+                "name": custom_internet_sg["name"],
+                "selector": custom_internet_sg["selector"]
+            }])
+            results["custom_internet_smartgroup"] = custom_internet_df
+            self.logger.info(f"Created custom Internet SmartGroup: {custom_internet_sg['name']}")
+        else:
+            results["custom_internet_smartgroup"] = pd.DataFrame(columns=["name", "selector"])
+
         # Merge all SmartGroups for complete list
         smartgroup_dfs = [
             standard_smartgroups,
             results["hostname_smartgroups"][["name", "selector"]] if not results["hostname_smartgroups"].empty else pd.DataFrame(columns=["name", "selector"]),
-            results["source_ip_smartgroups"]
+            results["source_ip_smartgroups"],
+            results["custom_internet_smartgroup"]
         ]
 
         # Filter out empty DataFrames and concatenate
@@ -392,9 +450,36 @@ class SmartGroupManager:
         self.logger.info(f"  Standard SmartGroups: {len(results['standard_smartgroups'])}")
         self.logger.info(f"  Hostname SmartGroups: {len(results['hostname_smartgroups'])}")
         self.logger.info(f"  Source IP SmartGroups: {len(results['source_ip_smartgroups'])}")
+        self.logger.info(f"  Custom Internet SmartGroups: {len(results['custom_internet_smartgroup'])}")
         self.logger.info(f"  Total SmartGroups: {len(results['complete_smartgroups'])}")
 
         return results
+
+    def get_internet_smartgroup_id(self, gateways_df: pd.DataFrame) -> str:
+        """
+        Get the appropriate Internet SmartGroup ID based on VPC CIDR analysis.
+        
+        This method determines whether to use the default Internet SmartGroup ID
+        or a custom Internet SmartGroup based on VPC CIDR requirements.
+        
+        Args:
+            gateways_df: DataFrame containing gateway/VPC data
+            
+        Returns:
+            Internet SmartGroup ID (either default UUID or Terraform reference)
+        """
+        # Check if custom Internet SmartGroup feature is enabled
+        if not getattr(self.config, 'enable_custom_internet_smartgroup', True):
+            self.logger.info("Custom Internet SmartGroup feature is disabled - using standard Internet SmartGroup")
+            return self.config.internet_sg_id
+
+        custom_sg_name = getattr(self.config, 'custom_internet_smartgroup_name', 'Internet_Custom')
+        resolver = InternetSmartGroupResolver(
+            default_internet_sg_id=self.config.internet_sg_id,
+            custom_internet_sg_name=custom_sg_name
+        )
+        
+        return resolver.get_internet_smartgroup_id(gateways_df)
 
     def get_source_ip_smartgroup_reference(self, fqdn_tag: str) -> Optional[str]:
         """

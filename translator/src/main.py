@@ -97,6 +97,24 @@ Examples:
         help="Global catch-all policy action (default: PERMIT)",
     )
 
+    # Custom Internet SmartGroup options
+    parser.add_argument(
+        "--enable-custom-internet-smartgroup",
+        action="store_true",
+        default=True,
+        help="Enable custom Internet SmartGroup for non-RFC1918 VPC CIDRs (default: enabled)",
+    )
+    parser.add_argument(
+        "--disable-custom-internet-smartgroup",
+        action="store_true",
+        help="Disable custom Internet SmartGroup (use standard Internet SmartGroup always)",
+    )
+    parser.add_argument(
+        "--custom-internet-smartgroup-name",
+        default="Internet_Custom",
+        help="Name for custom Internet SmartGroup (default: Internet_Custom)",
+    )
+
     # Customer context
     parser.add_argument("--customer-name", type=str, help="Customer name for naming context")
 
@@ -170,6 +188,13 @@ def main() -> int:
         config.default_web_port_ranges = args.default_web_port_ranges
     if hasattr(args, "global_catch_all_action"):
         config.global_catch_all_action = args.global_catch_all_action
+    if hasattr(args, "enable_custom_internet_smartgroup"):
+        if args.disable_custom_internet_smartgroup:
+            config.enable_custom_internet_smartgroup = False
+        else:
+            config.enable_custom_internet_smartgroup = args.enable_custom_internet_smartgroup
+    if hasattr(args, "custom_internet_smartgroup_name"):
+        config.custom_internet_smartgroup_name = args.custom_internet_smartgroup_name
 
     # Setup logging
     setup_logging(config)
@@ -267,6 +292,13 @@ def main() -> int:
         )
         smartgroups_df = smartgroup_results.get("complete_smartgroups", pd.DataFrame())
 
+        # Get dynamic Internet SmartGroup ID based on VPC analysis
+        dynamic_internet_sg_id = sg_manager.get_internet_smartgroup_id(gateways_df)
+        if dynamic_internet_sg_id != config.internet_sg_id:
+            logging.info(f"Using dynamic Internet SmartGroup ID: {dynamic_internet_sg_id}")
+        else:
+            logging.info(f"Using standard Internet SmartGroup ID: {config.internet_sg_id}")
+
         # Annotate fqdn_df with source IP filter information
         source_ip_smartgroups_df = smartgroup_results.get("source_ip_smartgroups", pd.DataFrame())
 
@@ -333,7 +365,7 @@ def main() -> int:
             fqdn_df,
             hostname_smartgroups_df,
             hostname_rules_df,
-            config.internet_sg_id,
+            dynamic_internet_sg_id,
             config.anywhere_sg_id,
             config.default_web_port_ranges,
         )
@@ -344,7 +376,7 @@ def main() -> int:
             fqdn_df,
             webgroups_df,
             config.any_webgroup_id,
-            config.internet_sg_id,
+            dynamic_internet_sg_id,
             config.anywhere_sg_id,
             config.default_web_port_ranges,
         )
@@ -353,7 +385,7 @@ def main() -> int:
         catch_all_rules_df = build_catch_all_policies(
             gateways_df,
             fw_gw_df,
-            config.internet_sg_id,
+            dynamic_internet_sg_id,
             config.anywhere_sg_id,
             config.global_catch_all_action,
         )
