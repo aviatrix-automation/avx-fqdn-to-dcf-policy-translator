@@ -129,28 +129,34 @@ class TestTranslatePortToPortRange:
     def test_single_port_string(self):
         """Test single port as string."""
         result = translate_port_to_port_range(["80"])
-        expected = [{"lo": "80", "hi": "0"}]
+        expected = [{"lo": 80}]
         assert result == expected
 
     def test_single_port_integer(self):
         """Test single port as integer."""
         result = translate_port_to_port_range([443])
-        expected = [{"lo": "443", "hi": "0"}]
+        expected = [{"lo": 443}]
         assert result == expected
 
     def test_port_range_string(self):
         """Test port range as string."""
         result = translate_port_to_port_range(["8080:8090"])
-        expected = [{"lo": "8080", "hi": "8090"}]
+        expected = [{"lo": 8080, "hi": 8090}]
+        assert result == expected
+
+    def test_port_range_with_dash(self):
+        """Test port range with dash separator."""
+        result = translate_port_to_port_range(["4580-4587"])
+        expected = [{"lo": 4580, "hi": 4587}]
         assert result == expected
 
     def test_multiple_ports(self):
         """Test multiple individual ports."""
         result = translate_port_to_port_range(["80", "443", "8080"])
         expected = [
-            {"lo": "80", "hi": "0"},
-            {"lo": "443", "hi": "0"},
-            {"lo": "8080", "hi": "0"}
+            {"lo": 80},
+            {"lo": 443},
+            {"lo": 8080}
         ]
         assert result == expected
 
@@ -158,9 +164,9 @@ class TestTranslatePortToPortRange:
         """Test mix of individual ports and ranges."""
         result = translate_port_to_port_range(["80", "8080:8090", "443"])
         expected = [
-            {"lo": "80", "hi": "0"},
-            {"lo": "8080", "hi": "8090"},
-            {"lo": "443", "hi": "0"}
+            {"lo": 80},
+            {"lo": 8080, "hi": 8090},
+            {"lo": 443}
         ]
         assert result == expected
 
@@ -172,13 +178,13 @@ class TestTranslatePortToPortRange:
     def test_invalid_port_format(self):
         """Test invalid port format handling."""
         result = translate_port_to_port_range(["invalid"])
-        expected = [{"lo": "invalid", "hi": "0"}]  # Function doesn't validate, just formats
+        expected = [{"lo": "invalid"}]  # Function doesn't validate, just formats
         assert result == expected
 
     def test_invalid_range_format(self):
         """Test invalid range format."""
         result = translate_port_to_port_range(["80-90-100"])
-        expected = [{"lo": "80-90-100", "hi": "0"}]  # Function doesn't validate, just formats
+        expected = [{"lo": "80-90-100"}]  # Function doesn't validate, just formats
         assert result == expected
 
     def test_port_range_test_cases_fixture(self, port_range_test_cases):
