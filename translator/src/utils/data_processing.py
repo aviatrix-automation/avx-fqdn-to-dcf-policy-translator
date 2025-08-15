@@ -106,8 +106,8 @@ def translate_port_to_port_range(ports: List[Union[str, int]]) -> Optional[List[
     Convert port specifications to DCF port range format.
 
     Handles various port formats:
-    - Single ports: '80' -> [{'lo': '80', 'hi': 0}]
-    - Port ranges: '5022:5026' -> [{'lo': '5022', 'hi': '5026'}]
+    - Single ports: '80' -> [{'lo': 80}]
+    - Port ranges: '5022:5026' or '5022-5026' -> [{'lo': 5022, 'hi': 5026}]
     - Empty/ALL ports: None (no port restrictions)
 
     Args:
@@ -126,16 +126,38 @@ def translate_port_to_port_range(ports: List[Union[str, int]]) -> Optional[List[
             # Return None for empty or 'ALL' ports - no port restrictions
             return None
 
-        # Convert to string and split on colon for ranges
+        # Convert to string and check for range separators (: or -)
         port_str = str(port)
-        port_parts = port_str.split(":")
+        
+        # Split on colon or dash for ranges, but only if it results in exactly 2 parts
+        if ":" in port_str:
+            port_parts = port_str.split(":")
+        elif "-" in port_str:
+            port_parts = port_str.split("-")
+        else:
+            port_parts = [port_str]
 
         if len(port_parts) == 2:
-            # Port range format: "start:end"
-            ranges.append({"lo": port_parts[0], "hi": port_parts[1]})
+            # Port range format: "start:end" or "start-end"
+            try:
+                lo_port = int(port_parts[0])
+                hi_port = int(port_parts[1])
+                ranges.append({"lo": lo_port, "hi": hi_port})
+            except ValueError:
+                # If conversion fails, treat as single port
+                try:
+                    single_port = int(port_str) if port_str.isdigit() else port_str
+                    ranges.append({"lo": single_port})
+                except ValueError:
+                    ranges.append({"lo": port_str})
         else:
-            # Single port format
-            ranges.append({"lo": port_parts[0], "hi": "0"})
+            # Single port format or invalid range (more than 2 parts)
+            try:
+                single_port = int(port_parts[0]) if len(port_parts) == 1 and port_parts[0].isdigit() else port_str
+                ranges.append({"lo": single_port})
+            except ValueError:
+                # If conversion fails, keep as string (for edge cases)
+                ranges.append({"lo": port_str})
 
     return ranges if ranges else None
 
