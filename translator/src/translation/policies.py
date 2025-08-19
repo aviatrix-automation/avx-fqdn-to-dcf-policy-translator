@@ -13,7 +13,7 @@ import pandas as pd
 from config import TranslationConfig
 from config.defaults import POLICY_PRIORITIES
 from data.processors import DataCleaner
-from utils.data_processing import is_ipv4, translate_port_to_port_range
+from utils.data_processing import is_ipv4, translate_port_to_port_range, normalize_protocol
 
 
 class PolicyBuilder:
@@ -110,9 +110,8 @@ class L4PolicyBuilder(PolicyBuilder):
         consolidated_df["logging"] = consolidated_df["log_enabled"].apply(
             lambda x: False if x == "FALSE" else True
         )
-        consolidated_df["protocol"] = consolidated_df["protocol"].str.upper()
-        consolidated_df.loc[consolidated_df["protocol"] == "", "protocol"] = "ANY"
-        consolidated_df["protocol"] = consolidated_df["protocol"].str.replace("ALL", "ANY")
+        # Use normalize_protocol function for proper protocol mapping
+        consolidated_df["protocol"] = consolidated_df["protocol"].apply(normalize_protocol)
 
         # Generate policy names
         consolidated_df["name"] = consolidated_df.apply(
@@ -496,7 +495,7 @@ class InternetPolicyBuilder(PolicyBuilder):
             lambda x: translate_port_to_port_range([x])
         )
         fqdn_tag_policies["logging"] = True
-        fqdn_tag_policies["protocol"] = fqdn_tag_policies["protocol"].str.upper()
+        fqdn_tag_policies["protocol"] = fqdn_tag_policies["protocol"].apply(normalize_protocol)
         fqdn_tag_policies["name"] = fqdn_tag_policies.apply(
             lambda row: f"Egress_{row['vpc_name']}_"
             f"{'permit' if row['fqdn_mode'] == 'white' else 'deny'}",
@@ -639,7 +638,7 @@ class InternetPolicyBuilder(PolicyBuilder):
             lambda x: translate_port_to_port_range([x])
         )
         source_ip_policies["logging"] = True
-        source_ip_policies["protocol"] = source_ip_policies["protocol"].str.upper()
+        source_ip_policies["protocol"] = source_ip_policies["protocol"].apply(normalize_protocol)
         source_ip_policies["name"] = source_ip_policies.apply(
             lambda row: f"Egress_{self._clean_fqdn_tag_name(row['fqdn_tag'])}_"
             f"{'permit' if row['fqdn_mode'] == 'white' else 'deny'}",
@@ -860,9 +859,7 @@ class InternetPolicyBuilder(PolicyBuilder):
                         port_ranges = translate_port_to_port_range([port]) if port else None
 
                     # Ensure protocol is properly formatted for DCF
-                    dcf_protocol = protocol.upper()
-                    if dcf_protocol == "ALL":
-                        dcf_protocol = "ANY"
+                    dcf_protocol = normalize_protocol(protocol)
 
                     hostname_policies.append(
                         {
@@ -994,9 +991,7 @@ class InternetPolicyBuilder(PolicyBuilder):
                     port_ranges = translate_port_to_port_range([port]) if port else None
 
                 # Ensure protocol is properly formatted for DCF
-                dcf_protocol = protocol.upper()
-                if dcf_protocol == "ALL":
-                    dcf_protocol = "ANY"
+                dcf_protocol = normalize_protocol(protocol)
 
                 hostname_policies.append(
                     {
@@ -1318,9 +1313,7 @@ class HostnamePolicyBuilder(PolicyBuilder):
                         port_ranges = translate_port_to_port_range([port]) if port else None
 
                     # Ensure protocol is properly formatted for DCF
-                    dcf_protocol = protocol.upper()
-                    if dcf_protocol == "ALL":
-                        dcf_protocol = "ANY"
+                    dcf_protocol = normalize_protocol(protocol)
 
                     hostname_policies.append(
                         {
