@@ -16,6 +16,21 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+# Import protocol mappings at module level to avoid relative import issues
+try:
+    from domain.constants import PROTOCOL_MAPPINGS
+except ImportError:
+    # Fallback if import fails - define the mappings inline
+    PROTOCOL_MAPPINGS = {
+        "all": "ANY",
+        "any": "ANY",
+        "tcp": "TCP",
+        "udp": "UDP",
+        "icmp": "ICMP",
+        "http": "TCP",
+        "https": "TCP",
+    }
+
 
 def remove_invalid_name_chars(df: pd.DataFrame, column: str) -> pd.DataFrame:
     """
@@ -263,18 +278,29 @@ def safe_list_to_string(value: Union[str, List[str]]) -> str:
 
 def normalize_protocol(protocol: str) -> str:
     """
-    Normalize protocol names for DCF compatibility.
+    Normalize protocol names for DCF compatibility using proper protocol mappings.
 
     Args:
         protocol: Protocol name to normalize
 
     Returns:
-        Normalized protocol name in uppercase
+        Normalized protocol name mapped to DCF-compatible values
     """
-    if not protocol or protocol.upper() in ["ALL", "ANY"]:
+    if not protocol:
         return "ANY"
-
-    return protocol.upper()
+    
+    # Check if the protocol exists in our mappings (case-insensitive)
+    protocol_lower = protocol.lower()
+    if protocol_lower in PROTOCOL_MAPPINGS:
+        return PROTOCOL_MAPPINGS[protocol_lower]
+    
+    # Handle special cases
+    protocol_upper = protocol.upper()
+    if protocol_upper in ["ALL", "ANY"]:
+        return "ANY"
+    
+    # Default fallback - return uppercase if no mapping found
+    return protocol_upper
 
 
 def validate_dcf_name(name: str) -> bool:

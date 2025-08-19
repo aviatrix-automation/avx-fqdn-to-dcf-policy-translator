@@ -16,6 +16,7 @@ from ..config import TranslationConfig
 from ..config.defaults import DCF_CONSTRAINTS
 from ..data.processors import DataCleaner
 from ..domain.constants import FQDN_MODE_MAPPINGS
+from ..utils.data_processing import normalize_protocol
 from .fqdn_handlers import FQDNValidator
 from .unsupported_fqdn_tracker import UnsupportedFQDNTracker
 
@@ -53,7 +54,7 @@ class WebGroupBuilder:
         """
         webgroup_name = row["name"]
         fqdn_tag_name = row["fqdn_tag_name"]
-        protocol = row["protocol"].upper()
+        protocol = normalize_protocol(row["protocol"])
         port = str(row["port"])
         original_domains = row["fqdn"]
         

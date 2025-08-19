@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 from config import TranslationConfig
 from data.processors import DataCleaner
+from utils.data_processing import normalize_protocol
 
 # Configure pandas to avoid future warnings about downcasting
 pd.set_option("future.no_silent_downcasting", True)
@@ -206,7 +207,7 @@ class WebGroupBuilder:
         def filter_and_create_selector(row: pd.Series) -> Dict[str, Any]:
             webgroup_name = row["name"]
             fqdn_tag_name = row["fqdn_tag_name"]
-            protocol = row["protocol"].upper()
+            protocol = normalize_protocol(row["protocol"])
             port = str(row["port"])
             valid_domains, invalid_domains = FQDNValidator.filter_domains_for_dcf_compatibility(
                 row["fqdn"], webgroup_name
@@ -483,9 +484,7 @@ class FQDNPolicyBuilder:
                         port_ranges = self.translate_port_to_port_range([port]) if port else None
 
                     # Ensure protocol is properly formatted for DCF
-                    dcf_protocol = protocol.upper()
-                    if dcf_protocol == "ALL":
-                        dcf_protocol = "ANY"
+                    dcf_protocol = normalize_protocol(protocol)
 
                     hostname_policies.append(
                         {
