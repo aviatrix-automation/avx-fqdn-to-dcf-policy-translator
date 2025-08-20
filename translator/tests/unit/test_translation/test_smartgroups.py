@@ -310,7 +310,7 @@ class TestHostnameSmartGroups:
         
         # Should group by tag, protocol, port, and mode
         assert len(result_df) >= 1  # At least one group
-        assert list(result_df.columns) == ['name', 'selector', 'protocol', 'port', 'fqdn_mode', 'fqdn_list']
+        assert list(result_df.columns) == ['name', 'selector', 'protocol', 'port', 'fqdn_mode', 'fqdn_list', 'original_fqdn_tag_name']
         
         # Check that FQDNs are grouped properly
         for _, row in result_df.iterrows():
@@ -335,7 +335,7 @@ class TestHostnameSmartGroups:
         result_df = builder.build_hostname_smartgroups(hostname_rules_df)
         
         assert len(result_df) == 0
-        assert list(result_df.columns) == ['name', 'selector', 'protocol', 'port', 'fqdn_mode', 'fqdn_list']
+        assert list(result_df.columns) == ['name', 'selector', 'protocol', 'port', 'fqdn_mode', 'fqdn_list', 'original_fqdn_tag_name']
 
     def test_build_hostname_smartgroups_grouping_logic(self):
         """Test that hostname SmartGroups are grouped correctly."""

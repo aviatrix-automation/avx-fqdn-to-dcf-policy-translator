@@ -168,7 +168,7 @@ class SmartGroupBuilder:
         """
         if hostname_rules_df.empty:
             return pd.DataFrame(
-                columns=["name", "selector", "protocol", "port", "fqdn_mode", "fqdn_list"]
+                columns=["name", "selector", "protocol", "port", "fqdn_mode", "fqdn_list", "original_fqdn_tag_name"]
             )
 
         # Group FQDNs by protocol, port, fqdn_mode, and fqdn_tag_name for optimization
@@ -206,6 +206,7 @@ class SmartGroupBuilder:
                     "port": row["port"],  # Store original port value (ALL, etc.)
                     "fqdn_mode": mode,
                     "fqdn_list": fqdn_list,
+                    "original_fqdn_tag_name": fqdn_tag_name,  # Store original name for mapping
                 }
             )
 

@@ -797,24 +797,33 @@ class InternetPolicyBuilder(PolicyBuilder):
         # We need to match source IP FQDN tags to hostname SmartGroups by fqdn_tag_name, protocol, port, and mode
         hostname_sg_map = {}
         for _, sg_row in hostname_smartgroups_df.iterrows():
-            # Extract fqdn_tag_name from the SmartGroup name (format: fqdn_{fqdn_tag_name}_{hash})
-            sg_name = sg_row["name"]
-            if sg_name.startswith("fqdn_"):
-                # Extract the fqdn_tag_name by removing the prefix and hash suffix
-                name_parts = sg_name[5:]  # Remove "fqdn_" prefix
-                # Find the last underscore to separate tag name from hash
-                last_underscore = name_parts.rfind("_")
-                if last_underscore > 0:
-                    extracted_fqdn_tag_name = name_parts[:last_underscore]
-                    # Convert underscores back to spaces to match original FQDN tag names
-                    original_fqdn_tag_name = extracted_fqdn_tag_name.replace("_", " ")
-                    protocol = sg_row["protocol"]
-                    port = sg_row["port"]
-                    fqdn_mode = sg_row["fqdn_mode"]
+            # Use the stored original_fqdn_tag_name instead of trying to extract from cleaned name
+            if "original_fqdn_tag_name" in sg_row:
+                fqdn_tag_name = sg_row["original_fqdn_tag_name"]
+            else:
+                # Fallback to old extraction logic if original name not stored (for backward compatibility)
+                sg_name = sg_row["name"]
+                if sg_name.startswith("fqdn_"):
+                    # Extract the fqdn_tag_name by removing the prefix and hash suffix
+                    name_parts = sg_name[5:]  # Remove "fqdn_" prefix
+                    # Find the last underscore to separate tag name from hash
+                    last_underscore = name_parts.rfind("_")
+                    if last_underscore > 0:
+                        extracted_fqdn_tag_name = name_parts[:last_underscore]
+                        # Convert underscores back to spaces to match original FQDN tag names
+                        fqdn_tag_name = extracted_fqdn_tag_name.replace("_", " ")
+                    else:
+                        continue  # Skip if we can't extract the name
+                else:
+                    continue  # Skip non-hostname SmartGroups
 
-                    # Create unique key for this SmartGroup
-                    key = (original_fqdn_tag_name, protocol, port, fqdn_mode)
-                    hostname_sg_map[key] = sg_row
+            protocol = sg_row["protocol"]
+            port = sg_row["port"]
+            fqdn_mode = sg_row["fqdn_mode"]
+
+            # Create unique key for this SmartGroup
+            key = (fqdn_tag_name, protocol, port, fqdn_mode)
+            hostname_sg_map[key] = sg_row
 
         logging.info(f"Created hostname SmartGroup map with {len(hostname_sg_map)} entries")
 
@@ -943,22 +952,31 @@ class InternetPolicyBuilder(PolicyBuilder):
         # We need to match VPC FQDN tags to hostname SmartGroups by fqdn_tag_name, protocol, port, and mode
         hostname_sg_map = {}
         for _, sg_row in hostname_smartgroups_df.iterrows():
-            # Extract fqdn_tag_name from the SmartGroup name (format: fqdn_{fqdn_tag_name}_{hash})
-            sg_name = sg_row["name"]
-            if sg_name.startswith("fqdn_"):
-                # Extract the fqdn_tag_name by removing the prefix and hash suffix
-                name_parts = sg_name[5:]  # Remove "fqdn_" prefix
-                # Find the last underscore to separate tag name from hash
-                last_underscore = name_parts.rfind("_")
-                if last_underscore > 0:
-                    fqdn_tag_name = name_parts[:last_underscore]
-                    protocol = sg_row["protocol"]
-                    port = sg_row["port"]
-                    fqdn_mode = sg_row["fqdn_mode"]
+            # Use the stored original_fqdn_tag_name instead of trying to extract from cleaned name
+            if "original_fqdn_tag_name" in sg_row:
+                fqdn_tag_name = sg_row["original_fqdn_tag_name"]
+            else:
+                # Fallback to old extraction logic if original name not stored (for backward compatibility)
+                sg_name = sg_row["name"]
+                if sg_name.startswith("fqdn_"):
+                    # Extract the fqdn_tag_name by removing the prefix and hash suffix
+                    name_parts = sg_name[5:]  # Remove "fqdn_" prefix
+                    # Find the last underscore to separate tag name from hash
+                    last_underscore = name_parts.rfind("_")
+                    if last_underscore > 0:
+                        fqdn_tag_name = name_parts[:last_underscore]
+                    else:
+                        continue  # Skip if we can't extract the name
+                else:
+                    continue  # Skip non-hostname SmartGroups
 
-                    # Create unique key for this SmartGroup
-                    key = (fqdn_tag_name, protocol, port, fqdn_mode)
-                    hostname_sg_map[key] = sg_row
+            protocol = sg_row["protocol"]
+            port = sg_row["port"]
+            fqdn_mode = sg_row["fqdn_mode"]
+
+            # Create unique key for this SmartGroup
+            key = (fqdn_tag_name, protocol, port, fqdn_mode)
+            hostname_sg_map[key] = sg_row
 
         # Now create policies by matching VPC FQDN tags to their corresponding hostname SmartGroups
         hostname_policies = []
