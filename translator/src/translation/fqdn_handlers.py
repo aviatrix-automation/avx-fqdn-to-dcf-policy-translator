@@ -205,7 +205,7 @@ class WebGroupBuilder:
         # Handle empty DataFrame case (e.g., when all FQDN tags are disabled)
         if len(fqdn_tag_rule_df) == 0:
             logging.info("No FQDN tag rules provided for WebGroup creation")
-            return pd.DataFrame(columns=["name", "selector"])
+            return pd.DataFrame(columns=["name", "selector", "fqdn_tag_name", "protocol", "port", "fqdn_mode"])
         
         fqdn_tag_rule_df = (
             fqdn_tag_rule_df.groupby(["fqdn_tag_name", "protocol", "port", "fqdn_mode"])["fqdn"]
