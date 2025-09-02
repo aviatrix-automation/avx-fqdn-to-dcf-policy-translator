@@ -124,9 +124,28 @@ class FQDNRuleProcessor:
         Returns:
             Tuple of (webgroup_rules, hostname_rules, truly_unsupported_rules)
         """
+        # Handle empty DataFrames
+        if len(fqdn_tag_rule_df) == 0:
+            logging.info("No FQDN tag rules provided")
+            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        
+        if len(fqdn_df) == 0 or "fqdn_tag" not in fqdn_df.columns:
+            logging.info("No FQDN configuration data available - all rules will be processed as hostname rules")
+            # When fqdn_df is empty, we can't determine enabled status, so treat all rules as hostname rules
+            empty_webgroup_rules = pd.DataFrame()
+            hostname_rules = fqdn_tag_rule_df.copy()
+            # Add default columns that would normally come from the merge
+            hostname_rules["fqdn_enabled"] = True  # Default to enabled when no fqdn config
+            truly_unsupported_rules = pd.DataFrame()
+            return empty_webgroup_rules, hostname_rules, truly_unsupported_rules
+        
         fqdn_tag_rule_df = fqdn_tag_rule_df.merge(
             fqdn_df, left_on="fqdn_tag_name", right_on="fqdn_tag", how="left"
         )
+
+        # Handle cases where merge resulted in NaN values for fqdn_enabled
+        # (when fqdn_tag_rule references a tag not in fqdn configuration)
+        fqdn_tag_rule_df["fqdn_enabled"] = fqdn_tag_rule_df["fqdn_enabled"].fillna(True)
 
         # IMPORTANT: Only process enabled FQDN tags to maintain consistency
         # with existing webgroup logic
