@@ -60,7 +60,9 @@ class FQDNValidator:
 
     @staticmethod
     def filter_domains_for_dcf_compatibility(
-        fqdn_list: List[str], webgroup_name: Optional[str] = None
+        fqdn_list: List[str], 
+        webgroup_name: Optional[str] = None,
+        skip_incompatible_domain_filtering: bool = False
     ) -> Tuple[List[str], List[str]]:
         """
         Filter FQDN list to only include DCF 8.0 compatible domains.
@@ -68,6 +70,8 @@ class FQDNValidator:
         Args:
             fqdn_list: List of domain strings
             webgroup_name: Name of webgroup for logging context (optional)
+            skip_incompatible_domain_filtering: If True, skip filtering incompatible domains
+                                               (for controller version 8.1+)
 
         Returns:
             Tuple of (valid_domains, invalid_domains)
@@ -78,20 +82,29 @@ class FQDNValidator:
         webgroup_context = f" for webgroup '{webgroup_name}'" if webgroup_name else ""
 
         for domain in fqdn_list:
-            if FQDNValidator.validate_sni_domain_for_dcf(domain):
+            # If we're skipping incompatible domain filtering (8.1+), treat all domains as valid
+            if skip_incompatible_domain_filtering:
+                valid_domains.append(domain)
+            elif FQDNValidator.validate_sni_domain_for_dcf(domain):
                 valid_domains.append(domain)
             else:
                 invalid_domains.append(domain)
 
         if invalid_domains:
-            logging.warning(
-                f"Filtered {len(invalid_domains)} DCF 8.0 incompatible SNI domains"
-                f"{webgroup_context}: {invalid_domains}"
-            )
+            if not skip_incompatible_domain_filtering:
+                logging.warning(
+                    f"Filtered {len(invalid_domains)} DCF 8.0 incompatible SNI domains"
+                    f"{webgroup_context}: {invalid_domains}"
+                )
+            else:
+                logging.info(
+                    f"Including {len(invalid_domains)} domains that would be incompatible "
+                    f"with DCF 8.0 but are supported in 8.1+{webgroup_context}: {invalid_domains}"
+                )
 
         if valid_domains:
             logging.info(
-                f"Retained {len(valid_domains)} DCF 8.0 compatible domains{webgroup_context}"
+                f"Retained {len(valid_domains)} DCF compatible domains{webgroup_context}"
             )
 
         return valid_domains, invalid_domains
@@ -187,10 +200,11 @@ class FQDNRuleProcessor:
 class WebGroupBuilder:
     """Builds DCF WebGroups from FQDN rules."""
 
-    def __init__(self, unsupported_fqdn_tracker: Optional[Any] = None) -> None:
+    def __init__(self, unsupported_fqdn_tracker: Optional[Any] = None, skip_incompatible_domain_filtering: bool = False) -> None:
         self.cleaner = DataCleaner(TranslationConfig())
         self.all_invalid_domains: List[Dict[str, str]] = []
         self.unsupported_fqdn_tracker = unsupported_fqdn_tracker
+        self.skip_incompatible_domain_filtering = skip_incompatible_domain_filtering
 
     def build_webgroup_df(self, fqdn_tag_rule_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -229,7 +243,7 @@ class WebGroupBuilder:
             protocol = normalize_protocol(row["protocol"])
             port = str(row["port"])
             valid_domains, invalid_domains = FQDNValidator.filter_domains_for_dcf_compatibility(
-                row["fqdn"], webgroup_name
+                row["fqdn"], webgroup_name, self.skip_incompatible_domain_filtering
             )
 
             if invalid_domains:
@@ -238,16 +252,20 @@ class WebGroupBuilder:
                     [{"webgroup": webgroup_name, "domain": domain} for domain in invalid_domains]
                 )
                 
-                # Add detailed records to the tracker if available
+                # Add detailed records to the tracker if available  
                 if self.unsupported_fqdn_tracker:
                     for domain in invalid_domains:
+                        # Only track as unsupported if we're actually filtering (8.0 behavior)
+                        reason = ("DCF 8.0 incompatible SNI domain pattern" 
+                                if not self.skip_incompatible_domain_filtering 
+                                else "Domain included despite DCF 8.0 incompatibility (8.1+ support)")
                         self.unsupported_fqdn_tracker.add_invalid_domain(
                             fqdn_tag_name=fqdn_tag_name,
                             webgroup_name=webgroup_name,
                             domain=domain,
                             port=port,
                             protocol=protocol,
-                            reason="DCF 8.0 incompatible SNI domain pattern"
+                            reason=reason
                         )
 
             return self._translate_fqdn_tag_to_sg_selector(valid_domains)
@@ -543,6 +561,7 @@ class FQDNHandler:
         pretty_parse_vpc_name_func: Any,
         deduplicate_policy_names_func: Any,
         unsupported_fqdn_tracker: Optional[Any] = None,
+        skip_incompatible_domain_filtering: bool = False,
     ) -> None:
         """
         Initialize the FQDN handler with required dependencies.
@@ -553,10 +572,12 @@ class FQDNHandler:
             pretty_parse_vpc_name_func: Function to clean VPC names
             deduplicate_policy_names_func: Function to deduplicate policy names
             unsupported_fqdn_tracker: Optional tracker for unsupported FQDN domains
+            skip_incompatible_domain_filtering: If True, skip filtering of incompatible domains
+                                               (for controller version 8.1+)
         """
         self.validator = FQDNValidator()
         self.rule_processor = FQDNRuleProcessor(default_web_port_ranges)
-        self.webgroup_builder = WebGroupBuilder(unsupported_fqdn_tracker)
+        self.webgroup_builder = WebGroupBuilder(unsupported_fqdn_tracker, skip_incompatible_domain_filtering)
         self.hostname_sg_builder = HostnameSmartGroupBuilder()
         self.policy_builder = FQDNPolicyBuilder(
             translate_port_to_port_range_func,

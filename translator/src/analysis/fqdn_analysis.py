@@ -157,9 +157,17 @@ class FQDNCategorizer:
 class DomainCompatibilityAnalyzer:
     """Analyzes domain compatibility with DCF 8.0 SNI requirements."""
 
-    def __init__(self) -> None:
+    def __init__(self, skip_incompatible_domain_filtering: bool = False) -> None:
+        """
+        Initialize the domain compatibility analyzer.
+        
+        Args:
+            skip_incompatible_domain_filtering: If True, skip filtering of incompatible domains
+                                               (for controller version 8.1+)
+        """
         self.logger = logging.getLogger(__name__)
         self.sni_pattern = DCF_SNI_DOMAIN_PATTERN
+        self.skip_incompatible_domain_filtering = skip_incompatible_domain_filtering
 
     def analyze_domain_compatibility(self, domains: List[str]) -> Dict[str, Any]:
         """
@@ -179,7 +187,10 @@ class DomainCompatibilityAnalyzer:
         invalid_reasons = defaultdict(list)
 
         for domain in domains:
-            if re.match(self.sni_pattern, domain):
+            # If we're skipping incompatible domain filtering (8.1+), treat all domains as valid
+            if self.skip_incompatible_domain_filtering:
+                valid_domains.append(domain)
+            elif re.match(self.sni_pattern, domain):
                 valid_domains.append(domain)
             else:
                 invalid_domains.append(domain)
@@ -226,10 +237,18 @@ class DomainCompatibilityAnalyzer:
                 webgroup_analysis[webgroup_name] = analysis
 
                 if analysis["invalid_count"] > 0:
-                    self.logger.warning(
-                        f"WebGroup '{webgroup_name}' has {analysis['invalid_count']} "
-                        f"DCF 8.0 incompatible domains out of {analysis['total_domains']}"
-                    )
+                    # Only log warnings about incompatible domains if we're actually filtering them
+                    if not self.skip_incompatible_domain_filtering:
+                        self.logger.warning(
+                            f"WebGroup '{webgroup_name}' has {analysis['invalid_count']} "
+                            f"DCF 8.0 incompatible domains out of {analysis['total_domains']}"
+                        )
+                    else:
+                        self.logger.info(
+                            f"WebGroup '{webgroup_name}' has {analysis['invalid_count']} "
+                            f"domains that would be incompatible with DCF 8.0 but are included "
+                            f"due to controller version 8.1+ support"
+                        )
 
         return webgroup_analysis
 
@@ -237,15 +256,17 @@ class DomainCompatibilityAnalyzer:
 class FQDNAnalyzer:
     """Main FQDN analyzer that orchestrates various analysis operations."""
 
-    def __init__(self, default_web_ports: Optional[Set[str]] = None):
+    def __init__(self, default_web_ports: Optional[Set[str]] = None, skip_incompatible_domain_filtering: bool = False):
         """
         Initialize the FQDN analyzer.
 
         Args:
             default_web_ports: Set of default web ports (80, 443 if None)
+            skip_incompatible_domain_filtering: If True, skip filtering of incompatible domains
+                                               (for controller version 8.1+)
         """
         self.categorizer = FQDNCategorizer(default_web_ports)
-        self.domain_analyzer = DomainCompatibilityAnalyzer()
+        self.domain_analyzer = DomainCompatibilityAnalyzer(skip_incompatible_domain_filtering)
         self.logger = logging.getLogger(__name__)
 
     def analyze_fqdn_rules(

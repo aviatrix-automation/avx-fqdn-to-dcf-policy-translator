@@ -21,6 +21,7 @@ TERRAFORM_FILE_PATTERNS = {
     "smart_group": "smart_group.tf",
     "gateway_details": "gateway_details.json",
     "copilot_app_domains": "copilot_app_domains.json",
+    "controller_version": "controller_version.json",
 }
 
 # Output file names

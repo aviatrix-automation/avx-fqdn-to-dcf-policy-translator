@@ -169,8 +169,8 @@ class WebGroupBuilder:
 class WebGroupManager:
     """High-level manager for WebGroup operations."""
 
-    def __init__(self, unsupported_fqdn_tracker: Optional[UnsupportedFQDNTracker] = None) -> None:
-        self.builder = WebGroupBuilder(unsupported_fqdn_tracker)
+    def __init__(self, unsupported_fqdn_tracker: Optional[UnsupportedFQDNTracker] = None, skip_incompatible_domain_filtering: bool = False) -> None:
+        self.builder = WebGroupBuilder(unsupported_fqdn_tracker, skip_incompatible_domain_filtering)
         self.unsupported_fqdn_tracker = self.builder.unsupported_fqdn_tracker
 
     def create_webgroups_from_fqdn_rules(self, fqdn_tag_rule_df: pd.DataFrame) -> pd.DataFrame:
