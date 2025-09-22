@@ -479,6 +479,26 @@ def get_gateway_details(controller_ip, cid):
     return response.json()
 
 
+def get_controller_version(controller_ip, cid):
+    """
+    Retrieve controller version information from the Aviatrix controller.
+    
+    This function fetches the controller version information which can be used
+    for version-specific logic in the translation process.
+    
+    Args:
+        controller_ip (str): IP address or hostname of the Aviatrix controller
+        cid (str): Session token from login
+        
+    Returns:
+        dict: JSON response containing controller version information
+    """
+    print("Getting controller version information.")
+    response = aviatrix_api_call(controller_ip=controller_ip, path="/v2/api",
+                                 cid=cid, params={'action': 'list_version_info'})
+    return response.json()
+
+
 def get_vpc_routes(controller_ip, cid, gateway_details):
     """
     Collect VPC route table information for all gateways.
@@ -774,6 +794,9 @@ def main():
     # Get gateway details using the CID - this provides VPC and gateway information
     gateway_details = get_gateway_details(args.controller_ip, cid)
 
+    # Get controller version information
+    controller_version = get_controller_version(args.controller_ip, cid)
+
     # Optionally get VPC route tables if requested
     # This is useful for migration scenarios involving transit gateways
     if args.vpc_routes:
@@ -785,6 +808,10 @@ def main():
     # Write the gateway details to the output file as JSON
     with open('gateway_details.json', 'w') as f:
         json.dump(gateway_details, f, indent=1)
+
+    # Write the controller version to the output file as JSON
+    with open('controller_version.json', 'w') as f:
+        json.dump(controller_version, f, indent=1)
 
     # Optionally get the ID of the "Any-Web" webgroup (requires controller v7.1+)
     # This is required for the translator script
@@ -805,7 +832,7 @@ def main():
 
     # Bundle all the files into a ZIP and delete the original files to clean up
     # Determine which additional files to include based on command line options
-    other_files = ["gateway_details.json"]
+    other_files = ["gateway_details.json", "controller_version.json"]
     if args.any_web:
         other_files.append("any_webgroup.json")
     if args.vpc_routes:
