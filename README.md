@@ -130,6 +130,9 @@ python src/main.py --validate-only --loglevel INFO
 
 # Custom DCF configuration
 python src/main.py --global-catch-all-action DENY
+
+# Include advanced wildcard domains (useful for Controller 8.0 and lower)
+python src/main.py --include-advanced-wildcards
 ```
 
 **Key Options:**
@@ -151,6 +154,7 @@ python src/main.py --global-catch-all-action DENY
 - `--any-webgroup-id`: Any webgroup ID. This defaults to the system default webgroup representing (*). (default: def000ad-0000-0000-0000-000000000002)
 - `--default-web-port-ranges`: Default web port ranges (default: 80 443)
 - `--global-catch-all-action {PERMIT,DENY}`: Global catch-all action (default: PERMIT)
+- `--include-advanced-wildcards`: Include incompatible advanced wildcard domains even when running Controller version 8.0 or lower (see Advanced Wildcard Handling section below)
 
 *Logging:*
 - `--loglevel {DEBUG,INFO,WARNING,ERROR,CRITICAL}`: Set logging level (default: WARNING)
@@ -189,13 +193,21 @@ The translator creates several files for DCF configuration and policy review:
 ### Monitoring Translation Progress
 
 Pay attention to log output during translation:
-- **WARNING**: DCF 8.0 incompatible SNI domains filtered out  
+- **WARNING**: DCF 8.0 incompatible SNI domains filtered out (Controller 8.0 and lower only)
 - **INFO**: Count of domains retained for each webgroup
+- **INFO**: Controller version detection and filtering decisions
 
-Example:
+Example output for Controller 8.0 without `--include-advanced-wildcards`:
 ```
-WARNING:root:Filtered 11 DCF 8.0 incompatible SNI domains for webgroup 'ws-prod-egress-whitelist_permit_tcp_443'
-INFO:root:Retained 215 DCF 8.0 compatible domains for webgroup 'ws-prod-egress-whitelist_permit_tcp_443'
+INFO:root:Detected Controller version 7.2.5090 - applying domain filtering for DCF compatibility
+WARNING:root:Filtered 11 DCF 8.0 incompatible SNI domains for webgroup 'egress-whitelist_permit_tcp_443'
+INFO:root:Retained 215 DCF 8.0 compatible domains for webgroup 'egress-whitelist_permit_tcp_443'
+```
+
+Example output for Controller 8.1+:
+```
+INFO:root:Detected Controller version 8.1.1234 - including all domains (version 8.1+)
+INFO:root:Processing 226 domains for webgroup 'egress-whitelist_permit_tcp_443'
 ```
 
 ## Translation Process
@@ -271,21 +283,56 @@ The translator analyzes VPC configurations and creates appropriate catch-all rul
 
 ## Important Considerations
 
-### DCF 8.0 SNI Domain Validation
-The translator includes automatic validation for DCF 8.0 SNI domain compatibility:
+### Advanced Wildcard Handling
 
-**Supported Domain Formats:**
+The translator automatically detects your Aviatrix Controller version and applies appropriate domain filtering:
+
+**Controller Version 8.1 and Higher:**
+- All domain formats are supported, including advanced wildcards like `*example.com`
+- No domain filtering is performed
+- All domains from your FQDN configurations are included in the translation
+
+**Controller Version 8.0 and Lower:**
+- Only basic wildcard patterns are supported: `*`, `*.domain.com`, and regular domains
+- Advanced wildcards like `*example.com` (missing dot after asterisk) are automatically filtered out
+- WARNING logs show which domains were filtered for compatibility
+
+**Manual Override with `--include-advanced-wildcards`:**
+Use this flag when you need to include advanced wildcard domains despite running an older Controller version:
+
+```bash
+python main.py --include-advanced-wildcards <other_options>
+```
+
+**When to use this flag:**
+- You plan to upgrade your Controller to 8.1+ after applying the configuration
+- You're testing the translation output for a future Controller upgrade
+- You need to see the complete translated configuration regardless of current Controller version
+- You want to manually review all domains before filtering
+
+**Warning:** Including advanced wildcards on Controller 8.0 or lower may cause Terraform apply failures. Only use this flag if you understand the compatibility implications.
+
+### DCF 8.0 SNI Domain Validation
+
+The translator includes automatic validation for DCF 8.0 SNI domain compatibility based on your Controller version:
+
+**Supported Domain Formats (Controller 8.0 and lower):**
 - Exact wildcard: `*`
 - Wildcard with subdomain: `*.domain.com` (requires dot after asterisk)
 - Regular domain: `domain.com`
 
 **Validation Pattern:** `\*|\*\.[-A-Za-z0-9_.]+|[-A-Za-z0-9_.]+`
 
-**Automatic Filtering:**
-- Malformed domains are automatically filtered out
+**Automatic Filtering (Controller 8.0 and lower only):**
+- Malformed domains are automatically filtered out unless `--include-advanced-wildcards` is specified
 - WARNING logs generated for filtered domains
-- Examples filtered: `*awsapps.com` (missing dot after asterisk)
+- Examples filtered: `*example.com` (missing dot after asterisk)
 - Examples retained: `*.protection.office.com`, `example.com`, `*`
+
+**Controller 8.1+ Behavior:**
+- All domain formats are supported without filtering
+- No validation warnings generated
+- Advanced wildcards like `*example.com` are included automatically
 
 **Benefits:**
 - Prevents terraform apply failures
