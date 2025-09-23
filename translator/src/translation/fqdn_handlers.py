@@ -23,6 +23,7 @@ import pandas as pd
 from config import TranslationConfig
 from data.processors import DataCleaner
 from utils.data_processing import normalize_protocol
+from utils.cidr_validator import CIDRValidator
 
 # Configure pandas to avoid future warnings about downcasting
 pd.set_option("future.no_silent_downcasting", True)
@@ -200,10 +201,11 @@ class FQDNRuleProcessor:
 class WebGroupBuilder:
     """Builds DCF WebGroups from FQDN rules."""
 
-    def __init__(self, unsupported_fqdn_tracker: Optional[Any] = None, skip_incompatible_domain_filtering: bool = False) -> None:
+    def __init__(self, unsupported_fqdn_tracker: Optional[Any] = None, unsupported_cidr_tracker: Optional[Any] = None, skip_incompatible_domain_filtering: bool = False) -> None:
         self.cleaner = DataCleaner(TranslationConfig())
         self.all_invalid_domains: List[Dict[str, str]] = []
         self.unsupported_fqdn_tracker = unsupported_fqdn_tracker
+        self.unsupported_cidr_tracker = unsupported_cidr_tracker
         self.skip_incompatible_domain_filtering = skip_incompatible_domain_filtering
 
     def build_webgroup_df(self, fqdn_tag_rule_df: pd.DataFrame) -> pd.DataFrame:
@@ -242,8 +244,31 @@ class WebGroupBuilder:
             fqdn_tag_name = row["fqdn_tag_name"]
             protocol = normalize_protocol(row["protocol"])
             port = str(row["port"])
+            original_domains = row["fqdn"]
+            
+            # First filter out CIDR entries (IP addresses are valid for SNI filters)
+            domains_without_cidr, cidr_entries = CIDRValidator.filter_cidr_notation(
+                original_domains, webgroup_name
+            )
+            
+            # Track CIDR entries that were filtered out
+            if cidr_entries:
+                logging.warning(f"WebGroup '{webgroup_name}' had {len(cidr_entries)} CIDR entries filtered: {cidr_entries}")
+                if self.unsupported_cidr_tracker:
+                    for cidr_entry in cidr_entries:
+                        self.unsupported_cidr_tracker.add_cidr_entry(
+                            fqdn_tag_name=fqdn_tag_name,
+                            webgroup_name=webgroup_name,
+                            cidr_entry=cidr_entry,
+                            port=port,
+                            protocol=protocol,
+                            entry_type="CIDR",
+                            reason="CIDR notation not supported in SNI filters"
+                        )
+            
+            # Then filter remaining domains for DCF 8.0 compatibility
             valid_domains, invalid_domains = FQDNValidator.filter_domains_for_dcf_compatibility(
-                row["fqdn"], webgroup_name, self.skip_incompatible_domain_filtering
+                domains_without_cidr, webgroup_name, self.skip_incompatible_domain_filtering
             )
 
             if invalid_domains:
@@ -267,6 +292,12 @@ class WebGroupBuilder:
                             protocol=protocol,
                             reason=reason
                         )
+
+            # Log if all domains were filtered out
+            if len(original_domains) > 0 and len(valid_domains) == 0:
+                cidr_count = len(cidr_entries)
+                invalid_count = len(invalid_domains)
+                logging.warning(f"WebGroup '{webgroup_name}' will be empty - all {len(original_domains)} entries were filtered ({cidr_count} CIDR, {invalid_count} DCF-incompatible)")
 
             return self._translate_fqdn_tag_to_sg_selector(valid_domains)
 
@@ -561,6 +592,7 @@ class FQDNHandler:
         pretty_parse_vpc_name_func: Any,
         deduplicate_policy_names_func: Any,
         unsupported_fqdn_tracker: Optional[Any] = None,
+        unsupported_cidr_tracker: Optional[Any] = None,
         skip_incompatible_domain_filtering: bool = False,
     ) -> None:
         """
@@ -572,12 +604,13 @@ class FQDNHandler:
             pretty_parse_vpc_name_func: Function to clean VPC names
             deduplicate_policy_names_func: Function to deduplicate policy names
             unsupported_fqdn_tracker: Optional tracker for unsupported FQDN domains
+            unsupported_cidr_tracker: Optional tracker for CIDR/IP entries in FQDN fields
             skip_incompatible_domain_filtering: If True, skip filtering of incompatible domains
                                                (for controller version 8.1+)
         """
         self.validator = FQDNValidator()
         self.rule_processor = FQDNRuleProcessor(default_web_port_ranges)
-        self.webgroup_builder = WebGroupBuilder(unsupported_fqdn_tracker, skip_incompatible_domain_filtering)
+        self.webgroup_builder = WebGroupBuilder(unsupported_fqdn_tracker, unsupported_cidr_tracker, skip_incompatible_domain_filtering)
         self.hostname_sg_builder = HostnameSmartGroupBuilder()
         self.policy_builder = FQDNPolicyBuilder(
             translate_port_to_port_range_func,
@@ -585,6 +618,7 @@ class FQDNHandler:
             deduplicate_policy_names_func,
         )
         self.unsupported_fqdn_tracker = unsupported_fqdn_tracker
+        self.unsupported_cidr_tracker = unsupported_cidr_tracker
 
     def process_fqdn_rules(
         self, fqdn_tag_rule_df: pd.DataFrame, fqdn_df: pd.DataFrame

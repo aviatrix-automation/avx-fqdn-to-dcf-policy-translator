@@ -20,6 +20,17 @@ class UnsupportedFQDNRecord:
     protocol: str
     reason: str
 
+@dataclass
+class UnsupportedCIDRRecord:
+    """Record for tracking CIDR/IP entries found in FQDN fields during translation."""
+    fqdn_tag_name: str
+    webgroup_name: str
+    cidr_entry: str
+    port: str
+    protocol: str
+    entry_type: str  # "CIDR" or "IP"
+    reason: str
+
 # Protocol mappings and constants
 PROTOCOL_MAPPINGS = {
     "all": "ANY",

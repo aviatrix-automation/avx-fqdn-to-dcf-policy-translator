@@ -349,7 +349,9 @@ def main() -> int:
 
         # Initialize unsupported FQDN tracker for comprehensive reporting
         from translation.unsupported_fqdn_tracker import UnsupportedFQDNTracker
+        from translation.unsupported_cidr_tracker import UnsupportedCIDRTracker
         unsupported_fqdn_tracker = UnsupportedFQDNTracker()
+        unsupported_cidr_tracker = UnsupportedCIDRTracker()
 
         # Initialize FQDN handler and process FQDN rules
         logging.info("Processing FQDN rules...")
@@ -359,6 +361,7 @@ def main() -> int:
             pretty_parse_vpc_name,
             deduplicate_policy_names,
             unsupported_fqdn_tracker,
+            unsupported_cidr_tracker,
             skip_incompatible_domain_filtering
         )
 
@@ -466,6 +469,7 @@ def main() -> int:
             "full_policy_list": full_policy_list,
             "unsupported_rules_df": unsupported_rules_df,
             "unsupported_fqdn_domains_df": unsupported_fqdn_tracker.to_dataframe(),
+            "unsupported_cidr_entries_df": unsupported_cidr_tracker.to_dataframe(),
         }
 
         # Initialize data exporter and export all outputs
@@ -522,6 +526,7 @@ def main() -> int:
         
         # Log unsupported FQDN summary
         unsupported_fqdn_tracker.log_summary()
+        unsupported_cidr_tracker.log_summary()
 
         return 0
 
