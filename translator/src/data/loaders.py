@@ -207,7 +207,6 @@ class TerraformLoader:
             "firewall",
             "fqdn_tag_rule",
             "fqdn",
-            "smart_group",
         ]
 
         for resource_name in resource_names:

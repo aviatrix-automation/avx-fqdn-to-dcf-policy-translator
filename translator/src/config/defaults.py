@@ -18,7 +18,6 @@ TERRAFORM_FILE_PATTERNS = {
     "firewall_tag": "firewall_tag.tf",
     "fqdn": "fqdn.tf",
     "fqdn_tag_rule": "fqdn_tag_rule.tf",
-    "smart_group": "smart_group.tf",
     "gateway_details": "gateway_details.json",
     "copilot_app_domains": "copilot_app_domains.json",
     "controller_version": "controller_version.json",
