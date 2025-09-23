@@ -277,7 +277,8 @@ class ControllerVersionLoader:
 
         if not file_path.exists():
             self.logger.warning(f"Controller version file not found: {file_path}")
-            self.logger.warning("Defaulting to version 8.0 behavior (filter incompatible domains)")
+            if not self.config.include_advanced_wildcards:
+                self.logger.warning("Defaulting to version 8.0 behavior (filter incompatible domains)")
             return "8.0.0"
 
         try:
@@ -295,7 +296,8 @@ class ControllerVersionLoader:
 
         except Exception as e:
             self.logger.error(f"Failed to load controller version from {file_path}: {e}")
-            self.logger.warning("Defaulting to version 8.0 behavior (filter incompatible domains)")
+            if not self.config.include_advanced_wildcards:
+                self.logger.warning("Defaulting to version 8.0 behavior (filter incompatible domains)")
             return "8.0.0"
 
     def is_version_8_1_or_higher(self, version: str) -> bool:
