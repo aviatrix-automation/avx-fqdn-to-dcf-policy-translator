@@ -117,6 +117,13 @@ Examples:
 
     # Customer context
     parser.add_argument("--customer-name", type=str, help="Customer name for naming context")
+    
+    # Advanced domain handling
+    parser.add_argument(
+        "--include-advanced-wildcards",
+        action="store_true",
+        help="Include domains with advanced wildcard patterns (e.g., *.domain.com) even for controller versions 8.0 and lower"
+    )
 
     return parser.parse_args()
 
@@ -195,6 +202,8 @@ def main() -> int:
             config.enable_custom_internet_smartgroup = args.enable_custom_internet_smartgroup
     if hasattr(args, "custom_internet_smartgroup_name"):
         config.custom_internet_smartgroup_name = args.custom_internet_smartgroup_name
+    if hasattr(args, "include_advanced_wildcards"):
+        config.include_advanced_wildcards = args.include_advanced_wildcards
 
     # Setup logging
     setup_logging(config)
@@ -251,6 +260,18 @@ def main() -> int:
         fqdn_tag_rule_df = config_data.get("fqdn_tag_rule", pd.DataFrame())
         fqdn_df = config_data.get("fqdn", pd.DataFrame())
         gateways_df = config_data.get("gateways", pd.DataFrame())
+
+        # Load controller version and determine domain filtering behavior
+        controller_version = loader.controller_version_loader.load_controller_version()
+        version_supports_advanced_wildcards = loader.controller_version_loader.is_version_8_1_or_higher(controller_version)
+        skip_incompatible_domain_filtering = version_supports_advanced_wildcards or config.include_advanced_wildcards
+        
+        if config.include_advanced_wildcards and not version_supports_advanced_wildcards:
+            logging.info(f"Controller version {controller_version} (8.0 or lower) detected, but --include-advanced-wildcards flag enabled - including all domains in translation")
+        elif skip_incompatible_domain_filtering:
+            logging.info(f"Controller version {controller_version} (8.1+) detected - including all domains in translation")
+        else:
+            logging.info(f"Controller version {controller_version} (8.0 or lower) detected - filtering incompatible domains")
 
         # Initialize data processor and process policies
         processor = DataProcessor(config)
@@ -328,7 +349,9 @@ def main() -> int:
 
         # Initialize unsupported FQDN tracker for comprehensive reporting
         from translation.unsupported_fqdn_tracker import UnsupportedFQDNTracker
+        from translation.unsupported_cidr_tracker import UnsupportedCIDRTracker
         unsupported_fqdn_tracker = UnsupportedFQDNTracker()
+        unsupported_cidr_tracker = UnsupportedCIDRTracker()
 
         # Initialize FQDN handler and process FQDN rules
         logging.info("Processing FQDN rules...")
@@ -337,7 +360,9 @@ def main() -> int:
             translate_port_to_port_range,
             pretty_parse_vpc_name,
             deduplicate_policy_names,
-            unsupported_fqdn_tracker
+            unsupported_fqdn_tracker,
+            unsupported_cidr_tracker,
+            skip_incompatible_domain_filtering
         )
 
         # Process FQDN rules
@@ -444,6 +469,7 @@ def main() -> int:
             "full_policy_list": full_policy_list,
             "unsupported_rules_df": unsupported_rules_df,
             "unsupported_fqdn_domains_df": unsupported_fqdn_tracker.to_dataframe(),
+            "unsupported_cidr_entries_df": unsupported_cidr_tracker.to_dataframe(),
         }
 
         # Initialize data exporter and export all outputs
@@ -456,7 +482,7 @@ def main() -> int:
         # Run analysis if enabled
         if config.enable_debug:
             logging.info("Running FQDN analysis...")
-            fqdn_analyzer = FQDNAnalyzer()
+            fqdn_analyzer = FQDNAnalyzer(skip_incompatible_domain_filtering=skip_incompatible_domain_filtering)
             fqdn_analysis = fqdn_analyzer.analyze_fqdn_rules(fqdn_tag_rule_df, fqdn_df)
 
             # Run policy validation
@@ -500,6 +526,7 @@ def main() -> int:
         
         # Log unsupported FQDN summary
         unsupported_fqdn_tracker.log_summary()
+        unsupported_cidr_tracker.log_summary()
 
         return 0
 

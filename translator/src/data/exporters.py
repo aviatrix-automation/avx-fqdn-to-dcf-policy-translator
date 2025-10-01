@@ -203,6 +203,7 @@ class CSVExporter:
             "smartgroups_df": "smartgroups.csv",
             "removed_duplicates": "removed_duplicate_policies.csv",
             "unsupported_fqdn_domains_df": "unsupported_fqdn_domains.csv",
+            "unsupported_cidr_entries_df": "unsupported_cidr_entries.csv",
         }
 
         for key, filename in output_exports.items():
@@ -218,6 +219,7 @@ class CSVExporter:
                 "clean_fqdn_webgroups": "clean_fqdn_webgroups.csv",
                 "unsupported_fqdn_rules": "unsupported_fqdn_rules.csv",
                 "unsupported_fqdn_domains_df": "unsupported_fqdn_domains.csv",
+                "unsupported_cidr_entries_df": "unsupported_cidr_entries.csv",
             }
 
             for key, filename in debug_exports.items():

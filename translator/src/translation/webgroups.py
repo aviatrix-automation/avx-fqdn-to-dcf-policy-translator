@@ -12,22 +12,26 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from ..config import TranslationConfig
-from ..config.defaults import DCF_CONSTRAINTS
-from ..data.processors import DataCleaner
-from ..domain.constants import FQDN_MODE_MAPPINGS
-from ..utils.data_processing import normalize_protocol
+from config import TranslationConfig
+from config.defaults import DCF_CONSTRAINTS
+from data.processors import DataCleaner
+from domain.constants import FQDN_MODE_MAPPINGS
+from utils.data_processing import normalize_protocol
+from utils.cidr_validator import CIDRValidator
 from .fqdn_handlers import FQDNValidator
 from .unsupported_fqdn_tracker import UnsupportedFQDNTracker
+from .unsupported_cidr_tracker import UnsupportedCIDRTracker
 
 
 class WebGroupBuilder:
     """Handles the creation and management of WebGroups from FQDN tag rules."""
 
-    def __init__(self, unsupported_fqdn_tracker: Optional[UnsupportedFQDNTracker] = None) -> None:
+    def __init__(self, unsupported_fqdn_tracker: Optional[UnsupportedFQDNTracker] = None, unsupported_cidr_tracker: Optional[UnsupportedCIDRTracker] = None, skip_incompatible_domain_filtering: bool = False) -> None:
         self.all_invalid_domains: List[Dict[str, str]] = []
         self.cleaner = DataCleaner(TranslationConfig())
         self.unsupported_fqdn_tracker = unsupported_fqdn_tracker or UnsupportedFQDNTracker()
+        self.unsupported_cidr_tracker = unsupported_cidr_tracker or UnsupportedCIDRTracker()
+        self.skip_incompatible_domain_filtering = skip_incompatible_domain_filtering
 
     def create_webgroup_name(self, row: pd.Series) -> str:
         """
@@ -58,13 +62,36 @@ class WebGroupBuilder:
         port = str(row["port"])
         original_domains = row["fqdn"]
         
+        # First filter out CIDR and IP address entries
+        # Filter out CIDR entries that aren't valid for SNI filters (IP addresses are valid)
+        domains_without_cidr, cidr_entries = CIDRValidator.filter_cidr_notation(
+            original_domains, f"WebGroup {webgroup_name}"
+        )
+        
+        # Track CIDR entries that were filtered out
+        if cidr_entries:
+            logging.warning(f"WebGroup '{webgroup_name}' had {len(cidr_entries)} CIDR entries filtered: {cidr_entries}")
+            for cidr_entry in cidr_entries:
+                self.unsupported_cidr_tracker.add_cidr_entry(
+                    fqdn_tag_name=fqdn_tag_name,
+                    webgroup_name=webgroup_name,
+                    cidr_entry=cidr_entry,
+                    port=port,
+                    protocol=protocol,
+                    entry_type="CIDR",
+                    reason="CIDR notation not supported in SNI filters"
+                )
+        
+        # Then filter remaining domains for DCF 8.0 compatibility
         valid_domains, invalid_domains = FQDNValidator.filter_domains_for_dcf_compatibility(
-            original_domains, webgroup_name
+            domains_without_cidr, webgroup_name, self.skip_incompatible_domain_filtering
         )
 
         # Log if all domains were filtered out
         if len(original_domains) > 0 and len(valid_domains) == 0:
-            logging.warning(f"WebGroup '{webgroup_name}' will be empty - all {len(original_domains)} domains were DCF-incompatible")
+            cidr_count = len(cidr_entries)
+            invalid_count = len(invalid_domains)
+            logging.warning(f"WebGroup '{webgroup_name}' will be empty - all {len(original_domains)} entries were filtered ({cidr_count} CIDR, {invalid_count} DCF-incompatible)")
 
         if invalid_domains:
             # Store invalid domains for reporting (legacy format)
@@ -169,9 +196,10 @@ class WebGroupBuilder:
 class WebGroupManager:
     """High-level manager for WebGroup operations."""
 
-    def __init__(self, unsupported_fqdn_tracker: Optional[UnsupportedFQDNTracker] = None) -> None:
-        self.builder = WebGroupBuilder(unsupported_fqdn_tracker)
+    def __init__(self, unsupported_fqdn_tracker: Optional[UnsupportedFQDNTracker] = None, unsupported_cidr_tracker: Optional[UnsupportedCIDRTracker] = None, skip_incompatible_domain_filtering: bool = False) -> None:
+        self.builder = WebGroupBuilder(unsupported_fqdn_tracker, unsupported_cidr_tracker, skip_incompatible_domain_filtering)
         self.unsupported_fqdn_tracker = self.builder.unsupported_fqdn_tracker
+        self.unsupported_cidr_tracker = self.builder.unsupported_cidr_tracker
 
     def create_webgroups_from_fqdn_rules(self, fqdn_tag_rule_df: pd.DataFrame) -> pd.DataFrame:
         """

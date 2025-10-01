@@ -207,7 +207,6 @@ class TerraformLoader:
             "firewall",
             "fqdn_tag_rule",
             "fqdn",
-            "smart_group",
         ]
 
         for resource_name in resource_names:
@@ -260,6 +259,78 @@ class GatewayDetailsLoader:
             return pd.DataFrame()
 
 
+class ControllerVersionLoader:
+    """Loads controller version information from JSON configuration."""
+
+    def __init__(self, config: TranslationConfig):
+        self.config = config
+        self.logger = logging.getLogger(__name__)
+
+    def load_controller_version(self) -> str:
+        """
+        Load controller version from JSON file.
+
+        Returns:
+            Controller version string (e.g., "7.2.5090", "8.1.1234")
+        """
+        file_path = self.config.get_input_file_path("controller_version")
+
+        if not file_path.exists():
+            self.logger.warning(f"Controller version file not found: {file_path}")
+            if not self.config.include_advanced_wildcards:
+                self.logger.warning("Defaulting to version 8.0 behavior (filter incompatible domains)")
+            return "8.0.0"
+
+        try:
+            with open(file_path) as fp:
+                version_data = json.load(fp)
+
+            if "results" not in version_data:
+                self.logger.error("Invalid controller version format - missing 'results' key")
+                return "8.0.0"
+
+            current_version = version_data["results"].get("current_version", "8.0.0")
+            
+            self.logger.info(f"Loaded controller version: {current_version}")
+            return current_version
+
+        except Exception as e:
+            self.logger.error(f"Failed to load controller version from {file_path}: {e}")
+            if not self.config.include_advanced_wildcards:
+                self.logger.warning("Defaulting to version 8.0 behavior (filter incompatible domains)")
+            return "8.0.0"
+
+    def is_version_8_1_or_higher(self, version: str) -> bool:
+        """
+        Check if the controller version is 8.1 or higher.
+
+        Args:
+            version: Version string (e.g., "7.2.5090", "8.1.1234")
+
+        Returns:
+            True if version is 8.1 or higher, False otherwise
+        """
+        try:
+            # Parse version string - expects format like "8.1.1234" or "7.2.5090"
+            version_parts = version.split(".")
+            if len(version_parts) < 2:
+                self.logger.warning(f"Invalid version format: {version}, defaulting to 8.0 behavior")
+                return False
+            
+            major = int(version_parts[0])
+            minor = int(version_parts[1])
+            
+            # Version 8.1 or higher
+            if major > 8 or (major == 8 and minor >= 1):
+                return True
+            else:
+                return False
+                
+        except (ValueError, IndexError) as e:
+            self.logger.error(f"Failed to parse version {version}: {e}")
+            return False
+
+
 class ConfigurationLoader:
     """Main configuration loader that orchestrates all data loading."""
 
@@ -267,6 +338,7 @@ class ConfigurationLoader:
         self.config = config
         self.tf_loader = TerraformLoader(config)
         self.gateway_loader = GatewayDetailsLoader(config)
+        self.controller_version_loader = ControllerVersionLoader(config)
         self.copilot_loader = CoPilotAssetLoader(config.input_dir)
         self.logger = logging.getLogger(__name__)
 

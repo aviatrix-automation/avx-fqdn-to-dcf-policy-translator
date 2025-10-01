@@ -58,6 +58,9 @@ class TranslationConfig:
     enable_custom_internet_smartgroup: bool = True
     custom_internet_smartgroup_name: str = "Internet_Custom"
 
+    # Advanced domain handling
+    include_advanced_wildcards: bool = False
+
     # Optional customer/organization context
     customer_name: Optional[str] = None
     organization_name: Optional[str] = None
