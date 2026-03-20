@@ -17,6 +17,7 @@ from config import TranslationConfig
 from data.processors import DataCleaner
 from translation.source_ip_smartgroups import SourceIPSmartGroupManager
 from translation.internet_smartgroup_resolver import InternetSmartGroupResolver
+from utils.cidr_validator import CIDRValidator
 
 
 class SmartGroupBuilder:
@@ -189,13 +190,35 @@ class SmartGroupBuilder:
             fqdn_list = row["fqdn"]
             fqdn_hash = abs(hash(str(sorted(fqdn_list)))) % 10000
 
-            name = f"fqdn_{fqdn_tag_name}_{fqdn_hash}"
-
-            # Create selector for hostname smartgroup using fqdn field
+            # Create selector for hostname smartgroup using appropriate field type
             # Always use a list of match expressions for consistency
             match_expressions = []
+            has_cidr = False
+            has_fqdn = False
+            
             for fqdn in fqdn_list:
-                match_expressions.append({"fqdn": fqdn.strip()})
+                fqdn_value = fqdn.strip()
+                # Check if this is an IP address or CIDR notation
+                if CIDRValidator.is_cidr_notation(fqdn_value) or CIDRValidator.is_ip_address(fqdn_value):
+                    # Use cidr selector for IP addresses and CIDR notation
+                    match_expressions.append({"cidr": fqdn_value})
+                    has_cidr = True
+                else:
+                    # Use fqdn selector for actual domain names
+                    match_expressions.append({"fqdn": fqdn_value})
+                    has_fqdn = True
+            
+            # Choose appropriate prefix based on content type
+            # If mixed content, prefer cidr prefix since it's more specific
+            if has_cidr and not has_fqdn:
+                prefix = "cidr"
+            elif has_fqdn and not has_cidr:
+                prefix = "fqdn"
+            else:
+                # Mixed content - use "mixed" prefix
+                prefix = "mixed"
+            
+            name = f"{prefix}_{fqdn_tag_name}_{fqdn_hash}"
             selector = {"match_expressions": match_expressions}
 
             hostname_smartgroups.append(

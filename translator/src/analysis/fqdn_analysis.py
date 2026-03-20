@@ -16,6 +16,7 @@ import pandas as pd
 
 sys.path.append(str(Path(__file__).parent.parent))
 from domain.constants import DCF_SNI_DOMAIN_PATTERN
+from utils.cidr_validator import CIDRValidator
 
 
 @dataclass
@@ -80,14 +81,27 @@ class FQDNCategorizer:
             # If no fqdn_df provided, use all rules
             enabled_rules = fqdn_rules_df.copy()
 
-        # WebGroup rules: HTTP/HTTPS on standard web ports
-        webgroup_mask = (enabled_rules["protocol"].str.lower().isin(["tcp", "http", "https"])) & (
-            enabled_rules["port"].isin(self.default_web_ports)
-        )
-        webgroup_rules = enabled_rules[webgroup_mask].copy()
+        # Helper function to check if an FQDN field contains CIDR or IP address
+        def has_cidr_or_ip(fqdn_value: str) -> bool:
+            """Check if an FQDN value is actually a CIDR block or IP address."""
+            if pd.isna(fqdn_value) or not isinstance(fqdn_value, str):
+                return False
+            return CIDRValidator.is_cidr_notation(fqdn_value.strip()) or CIDRValidator.is_ip_address(fqdn_value.strip())
 
-        # Hostname rules: All other enabled rules
-        hostname_rules = enabled_rules[~webgroup_mask].copy()
+        # Add a column to check if each rule has CIDR/IP content
+        enabled_rules = enabled_rules.copy()
+        enabled_rules["has_cidr_or_ip"] = enabled_rules["fqdn"].apply(has_cidr_or_ip)
+
+        # WebGroup rules: HTTP/HTTPS on standard web ports AND no CIDR/IP content
+        webgroup_mask = (
+            (enabled_rules["protocol"].str.lower().isin(["tcp", "http", "https"])) 
+            & (enabled_rules["port"].isin(self.default_web_ports))
+            & (~enabled_rules["has_cidr_or_ip"])  # Exclude rules with CIDR/IP content
+        )
+        webgroup_rules = enabled_rules[webgroup_mask].copy().drop(columns=["has_cidr_or_ip"], errors='ignore')
+
+        # Hostname rules: All other enabled rules (including CIDR/IP rules on web ports)
+        hostname_rules = enabled_rules[~webgroup_mask].copy().drop(columns=["has_cidr_or_ip"], errors='ignore')
 
         # Convert protocol "all" to "ANY" for DCF compatibility
         hostname_rules.loc[hostname_rules["protocol"] == "all", "protocol"] = "ANY"

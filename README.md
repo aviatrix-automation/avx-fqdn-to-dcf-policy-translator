@@ -1,368 +1,236 @@
-# Legacy to Distributed Cloud Firewall Policy Translator
+# Egress FQDN to DCF Migration Quickstart
 
-> **⚠️ PREVIEW NOTICE**
-> 
-> This migration script is in **Preview** and under active development. Use with caution.
-> 
-> **For assistance:** Reach out to your Aviatrix Account team.
-> 
-> **Report issues:** Submit via [GitHub Issues](https://github.com/aviatrix-automation/legacy-to-dcf-policy-translator/issues), open a support case, or contact your account team.
->
-> Some features are not currently supported, including advanced wildcard patterns and centralized FQDN (will be added in 8.1) and passthrough configuration (supported in 8.0, but incorporated in the migration script).
->
-> This translation is designed to translate policy for Controller version 8.0+
+This quickstart covers the steps required to migrate from Aviatrix Egress FQDN to Distributed Cloud Firewall (DCF). The migration involves exporting existing FQDN rules, translating them to DCF policies, and switching egress traffic from standalone gateways to spoke gateways.
 
-This tool migrates legacy stateful firewall and FQDN egress policies to Aviatrix Distributed Cloud Firewall (DCF) using a modular architecture.
+## Before You Begin
 
-## Project Structure
+### Software Requirements
 
-This project is organized into two main components:
+- Python 3
+- virtualenv
 
-### Exporter
-- **`exporter/`**: Legacy policy bundle export tool
-  - **`export_legacy_policy_bundle.py`**: Main export script with CoPilot integration
-  - **`requirements.txt`**: Dependencies for the exporter
-  - **`README.md`**: Exporter-specific documentation
+This code has been tested on macOS and Linux. See Python and virtualenv documentation if you need help installing either component.
 
-### Translator
-- **`translator/`**: Policy translation tool
-  - **`src/`**: Modular translator source code
-  - **`tests/`**: Comprehensive test suite
+### Spoke Gateway Requirements
 
-## Architecture Overview
+While Egress FQDN is enforced on standalone gateways, DCF is enforced on spoke gateways.
 
-The translator uses a modular architecture for improved maintainability, testing, and extensibility:
+- If your VPC/VNet already has spoke gateways, they can be used for DCF.
+- If your VPC/VNet doesn't have any spoke gateways, you will need to deploy them.
+- Confirm the spoke gateways meet the required sizing for DCF: [https://docs.aviatrix.com/documentation/latest/security/dcf-overview.html#spoke-gateway-sizing](https://docs.aviatrix.com/documentation/latest/security/dcf-overview.html#spoke-gateway-sizing)
 
-### Core Components
-- **`translator/src/main.py`**: Primary entry point with comprehensive CLI options
-- **`translator/src/config/`**: Configuration management and default values
-- **`translator/src/data/`**: Data loading, processing, cleaning, and export functionality
-- **`translator/src/translation/`**: Policy translation engines (L4, FQDN, SmartGroups, WebGroups)
-- **`translator/src/analysis/`**: Policy validation, FQDN analysis, and translation reporting
-- **`translator/src/utils/`**: Utility functions and helper methods
-- **`translator/src/domain/`**: Domain models, constants, and validation logic
+### IP Allowlist Updates
 
-## Quick Start
+- If you previously added the standalone gateway IP to an allowlist, you'll need to update your configuration to allow the spoke gateway IPs instead.
 
-### Primary Entry Point
-```bash
-cd translator
-python src/main.py [options]
+## Step 1 - Download the Code
+
+**Note:** The instructions assume you're working in `~/aviatrix`. If using a different directory, adjust the paths accordingly in all commands.
+
+Create a directory to work in.
+
+```
+mkdir ~/aviatrix
 ```
 
-## Important Topology Requirements for DCF 8.0
+Clone the repository.
 
-### Unsupported Topologies
-The following legacy topologies are **not supported** in DCF 8.0:
-
-- **Centralized Egress**: Will be available in DCF 8.1
-- **Standalone FQDN Gateways**: DCF requires "spoke" gateways for operation
-
-### Migration from Standalone FQDN Gateways
-
-If your environment uses standalone FQDN gateways, you must migrate to spoke gateways. The general recommendation is:
-
-1. **Migrate policies first** using this translator tool (policies won't take effect until gateway migration)
-2. **Deploy spoke gateways** alongside existing FQDN gateways
-3. **Switch traffic to spoke gateways**:
-   - Disable the FQDN tag on the legacy gateway
-   - Enable Single IP SNAT on the spoke gateway
-   - This transition will cause a brief traffic outage between disable and re-enable.
-4. **Fallback option**: If needed, disable SNAT and re-enable the FQDN tag
-5. **Complete migration**: When comfortable, decommission the FQDN gateways
-
-> **Note**: Spoke gateways can be deployed in parallel with FQDN gateways to minimize downtime during the transition.
-
-### 1. Export Legacy Policy Bundle
-Run the export script against your controller to generate a ZIP file containing all legacy policies:
-
-```bash
-cd exporter
-pip3 install -r requirements.txt
-python3 export_legacy_policy_bundle.py -i <controller_ip> -u <username> [-p <password>] [-o <output_file>] [-w]
+```
+cd ~/aviatrix/
+git clone https://github.com/aviatrix-automation/avx-fqdn-to-dcf-policy-translator
 ```
 
-**Basic Options:**
-- `-i, --controller_ip`: Controller IP address (required)
-- `-u, --username`: Username (required)  
-- `-p, --password`: Password (optional, will prompt if not provided)
-- `-o, --output`: Output file name (optional, default: legacy_policy_bundle.zip)
-- `-w, --any_web`: Download the Any Webgroup ID (requires controller v7.1+)
-- `-r, --vpc_routes`: Include VPC route table details
+If `git` is not installed, the code can be downloaded directly from the GitHub page.
 
-**CoPilot Integration Options:**
-- `--copilot-ip`: CoPilot IP address (optional, auto-discovers if not provided)
-- `--skip-copilot`: Skip CoPilot integration entirely
-- `--copilot-required`: Fail if CoPilot data cannot be retrieved
+- [https://github.com/aviatrix-automation/avx-fqdn-to-dcf-policy-translator](https://github.com/aviatrix-automation/avx-fqdn-to-dcf-policy-translator)
+- Click on Code > Download ZIP.
 
-**Examples:**
-```bash
-# Basic export with CoPilot auto-discovery
-python3 export_legacy_policy_bundle.py -i controller.company.com -u admin
+## Step 2 - Export FQDN Configuration
 
-# Export without CoPilot integration
-python3 export_legacy_policy_bundle.py -i controller.company.com -u admin --skip-copilot
+Create a Python virtual environment.
 
-# Export with specific CoPilot IP
-python3 export_legacy_policy_bundle.py -i controller.company.com -u admin --copilot-ip 192.168.1.100
+```
+python3 -m venv venv
 ```
 
-### 2. Translate Policies
-1. Create required directories: `./input`, `./output`, and optionally `./debug`
-2. Extract the exported policy bundle into the `./input` directory
-3. Run the translator:
+Activate the virtualenv.
 
-**Primary Entry Point:**
-```bash
-cd translator
-
-# Basic translation with default settings
-python src/main.py
-
-# Custom directories and customer context
-python src/main.py --input-dir ./input --output-dir ./output --customer-name "Example Corp"
-
-# Debug mode with detailed logging
-python src/main.py --debug --loglevel INFO
-
-# Validation only (no output generation)
-python src/main.py --validate-only --loglevel INFO
-
-# Custom DCF configuration
-python src/main.py --global-catch-all-action DENY
-
-# Include advanced wildcard domains (useful for Controller 8.0 and lower)
-python src/main.py --include-advanced-wildcards
+```
+source venv/bin/activate
 ```
 
-**Key Options:**
+Switch to the exporter directory.
 
-*Directory Configuration:*
-- `--input-dir`: Path to input files (default: ./input)
-- `--output-dir`: Path for output files (default: ./output)
-- `--debug-dir`: Path for debug files (default: ./debug)
+```
+cd ~/aviatrix/avx-fqdn-to-dcf-policy-translator/exporter/
+```
 
-*Processing Options:*
-- `--debug`: Enable debug mode with detailed output and debug files
-- `--force`: Force overwrite existing output files
-- `--validate-only`: Only validate input files without generating output
-- `--customer-name`: Customer name for naming context
+Install exporter requirements.
 
-*DCF Configuration:*
-- `--internet-sg-id`: Internet security group ID (default: def000ad-0000-0000-0000-000000000001)
-- `--anywhere-sg-id`: Anywhere security group ID (default: def000ad-0000-0000-0000-000000000000)
-- `--any-webgroup-id`: Any webgroup ID. This defaults to the system default webgroup representing (*). (default: def000ad-0000-0000-0000-000000000002)
-- `--default-web-port-ranges`: Default web port ranges (default: 80 443)
-- `--global-catch-all-action {PERMIT,DENY}`: Global catch-all action (default: PERMIT)
-- `--include-advanced-wildcards`: Include incompatible advanced wildcard domains even when running Controller version 8.0 or lower (see Advanced Wildcard Handling section below)
+```
+pip install -r requirements.txt
+```
 
-*Logging:*
-- `--loglevel {DEBUG,INFO,WARNING,ERROR,CRITICAL}`: Set logging level (default: WARNING)
+Run the exporter script and provide Aviatrix Controller credentials. Press `Enter` for the default options which are typically sufficient.
 
-### 3. Deploy Configuration
-Use Terraform to apply the generated configuration to your controller:
+```
+python3 export_legacy_policy_bundle.py
+```
 
-```bash
+The exporter script creates a zip file (`legacy_policy_bundle.zip` by default).
+
+## Step 3 - Translate FQDN Rules to DCF Policies
+
+Unzip `legacy_policy_bundle.zip` to an empty directory which will be referred to as `<input-dir>` in the following commands.
+
+```
+unzip legacy_policy_bundle.zip -d <input-dir>
+```
+
+Create an empty directory which will be referred to as `<output-dir>` in the following commands.
+
+```
+mkdir <output-dir>
+```
+
+Install requirements for translator.
+
+```
+cd ~/aviatrix/avx-fqdn-to-dcf-policy-translator/
+pip install -r requirements.txt
+```
+
+Switch to the translator directory.
+
+```
+cd ~/aviatrix/avx-fqdn-to-dcf-policy-translator/translator/
+```
+
+Run the translator script.
+
+```
+python3 src/main.py --input-dir <input-dir> --output-dir <output-dir>
+```
+
+The output of the translation will be in `<output-dir>`.
+
+## Step 4 - Stage DCF Policies
+
+### Update Aviatrix Provider Version
+
+Switch to the output directory.
+
+```
+cd <output-dir>
+```
+
+Update the Aviatrix provider version in `main.tf` to the appropriate version based on the Aviatrix Controller version: [https://registry.terraform.io/providers/AviatrixSystems/aviatrix/latest/docs/guides/release-compatibility](https://registry.terraform.io/providers/AviatrixSystems/aviatrix/latest/docs/guides/release-compatibility)
+
+```
+terraform {
+  required_providers {
+    aviatrix = {
+      source  = "AviatrixSystems/aviatrix"
+      version = "<UPDATE_THIS>"
+    }
+  }
+}
+
+provider "aviatrix" {
+  skip_version_validation = true
+}
+```
+
+### Apply Terraform Configuration
+
+Use Terraform to stage the DCF policies. Provide the Aviatrix Controller IP, username and password when prompted.
+
+```
 terraform init
+terraform plan
 terraform apply
 ```
 
-**Recommendations:**
-- **Topology Assessment**: Verify your environment is compatible with DCF 8.0 (see topology requirements above)
-- **Gateway Migration**: If using standalone FQDN gateways, plan for spoke gateway deployment
-- **Testing**: Test in a lab environment first
-- **Catch-All Policy**: Start with `--global-catch-all-action PERMIT` and switch to `DENY` after validation
-- **Rollback Plan**: Use `terraform destroy` for easy rollback if needed
+**Note:** This step only stages the policies and does NOT activate filtering yet. Traffic continues to use FQDN rules until SNAT is enabled on the spoke gateways in a later step.
 
-## Generated Output Files
+### Review DCF Policies
 
-The translator creates several files for DCF configuration and policy review:
+From CoPilot, go to Security > Distributed Cloud Firewall > Policies.
 
-**Terraform Configuration:**
-- `aviatrix_distributed_firewall_policy_list.tf.json`: DCF rule list
-- `aviatrix_smart_group.tf.json`: SmartGroups (CIDR, VPC, and FQDN-based)
-- `aviatrix_web_group.tf.json`: WebGroups for HTTP/HTTPS traffic
-- `main.tf`: Complete Terraform configuration
+- Review the translated DCF Policies.
 
-**Review Files:**
-- `smartgroups.csv`: SmartGroup configuration summary
-- `full_policy_list.csv`: Complete translated policy list
-- `unsupported_fqdn_rules.csv`: Rules requiring manual configuration
-- `removed_duplicate_policies.csv`: Optimized duplicate policies
+From CoPilot, go to Groups.
 
-### Monitoring Translation Progress
+- Review the SmartGroups & WebGroups.
 
-Pay attention to log output during translation:
-- **WARNING**: DCF 8.0 incompatible SNI domains filtered out (Controller 8.0 and lower only)
-- **INFO**: Count of domains retained for each webgroup
-- **INFO**: Controller version detection and filtering decisions
+## Step 5 - Deploy Spoke Gateways
 
-Example output for Controller 8.0 without `--include-advanced-wildcards`:
-```
-INFO:root:Detected Controller version 7.2.5090 - applying domain filtering for DCF compatibility
-WARNING:root:Filtered 11 DCF 8.0 incompatible SNI domains for webgroup 'egress-whitelist_permit_tcp_443'
-INFO:root:Retained 215 DCF 8.0 compatible domains for webgroup 'egress-whitelist_permit_tcp_443'
-```
+### Sizing
 
-Example output for Controller 8.1+:
-```
-INFO:root:Detected Controller version 8.1.1234 - including all domains (version 8.1+)
-INFO:root:Processing 226 domains for webgroup 'egress-whitelist_permit_tcp_443'
-```
+- If your VPC/VNet doesn't already have spoke gateways, deploy them now: [https://docs.aviatrix.com/documentation/latest/network/gateway-spoke-create.html](https://docs.aviatrix.com/documentation/latest/network/gateway-spoke-create.html)
+- Confirm the spoke gateways meet the required sizing for DCF and resize them if needed: [https://docs.aviatrix.com/documentation/latest/security/dcf-overview.html#spoke-gateway-sizing](https://docs.aviatrix.com/documentation/latest/security/dcf-overview.html#spoke-gateway-sizing)
 
-## Translation Process
+### Update DNS Settings
 
-### Modular Translation Architecture
+- From CoPilot, go to Cloud Fabric > Gateways > Spoke Gateways and click on the relevant spoke.
+- Go to the Settings tab and expand the General section.
+- Under Gateway Management DNS Server, select Cloud VPC/VNet DNS Server if it isn't already set to that.
 
-The new architecture separates concerns into specialized components:
+## Step 6 - Verify Current Egress Filtering
 
-**Data Processing Pipeline:**
-1. **Configuration Loading** (`src/data/loaders.py`): Loads and validates input files
-2. **Data Cleaning** (`src/data/processors.py`): Unified character cleaning and deduplication
-3. **SmartGroup Creation** (`src/translation/smartgroups.py`): CIDR, VPC, and hostname SmartGroups
-4. **Policy Translation** (`src/translation/policies.py`): L4, Internet, and Catch-all policies
-5. **FQDN Processing** (`src/translation/fqdn_handlers.py`): WebGroups and hostname policies
-6. **Data Export** (`src/data/exporters.py`): Terraform JSON generation
+From an instance in the VPC/VNet:
 
-**Validation & Analysis:**
-- **Policy Validation** (`src/analysis/policy_validators.py`): Rule consistency checks
-- **FQDN Analysis** (`src/analysis/fqdn_analysis.py`): Domain compatibility validation
-- **Translation Reporting** (`src/analysis/translation_reporter.py`): Comprehensive reports
+- Verify that it can access domains/ports that are allowed.
+- Verify that it CANNOT access domains/ports that are not allowed.
 
-### Object Translation
+## Step 7 - Disable SNAT on Standalone Gateway
 
-**SmartGroups Created From:**
-- **Stateful Firewall Tags** → CIDR-type SmartGroups (preserves tag names)
-- **Individual CIDRs** → Matched to existing tags or new SmartGroups named `cidr_{CIDR}-{mask}`  
-- **VPCs** → SmartGroups with criteria "account, region, name" named `{vpcname}`
-- **FQDN Hostnames** → DNS hostname SmartGroups for non-HTTP/HTTPS traffic
+### Detach Gateway from FQDN Tags
 
-**WebGroups Created From:**
-- **FQDN Tags** → Multiple WebGroups per tag based on port/protocol/action combinations
-- **Naming Convention** → `{legacy_tag_name}_{protocol}_{port}_{action}`
-- **Character Cleaning** → Consistent handling of special characters (e.g., `~~` → `_`)
+- From the Controller UI, go to Security > Egress Control, scroll to Egress FQDN Filter.
+- For each tag that the gateway is attached to, detach the gateway.
 
-### Policy Translation Phases
+### Disable Single IP SNAT on Egress Gateway
 
-#### 1. L4/Stateful Firewall Translation (`L4PolicyBuilder`)
-- **Deduplication**: Eliminates duplicate policies across primary/HA and source/destination gateways
-- **Consolidation**: Merges policies with same source/destination/protocol but different ports
-- **Optimization**: Reduces rule count while maintaining security posture
-- **Character Consistency**: Unified SmartGroup reference naming
+- From the Controller UI, go to Gateway and select the appropriate egress gateway and click Edit.
+- Scroll to Source NAT and click on Disable SNAT.
 
-#### 2. FQDN Traffic Translation (`FQDNHandler`)
+## Step 8 - Enable SNAT on Spoke Gateways
 
-**HTTP/HTTPS Traffic (WebGroups):**
-- TCP traffic on ports 80, 443 → WebGroups for optimal web filtering
-- Supports standard web protocols with enhanced performance
-- DCF 8.0 SNI domain validation and automatic filtering
+- From CoPilot, go to Security > Egress and click on the Egress VPC/VNets tab.
+- Verify that the VPC/VNet you are migrating shows the Point of Egress as `Native Cloud Egress`.
+- Click on Enable Local Egress on VPC/VNets, select the VPC/VNet that is being migrated and click Add.
+- Verify that Point of Egress now shows as `Local Egress`.
 
-**Non-HTTP/HTTPS Traffic (FQDN SmartGroups):**
-- All other protocols/ports → FQDN SmartGroups (DNS Hostname Resource Type)
-- Supports SSH, SMTP, custom applications, any-protocol rules
-- Real-time DNS resolution at policy enforcement
+## Step 9 - Verify DCF Filtering
 
-#### 3. Catch-All Policy Creation (`CatchAllPolicyBuilder`)
+Perform the same tests as in Step 6 to verify that the DCF policies are functioning correctly.
 
-The translator analyzes VPC configurations and creates appropriate catch-all rules:
+- Verify that it can access domains/ports that are allowed.
+- Verify that it CANNOT access domains/ports that are not allowed.
 
-- **Stateful FW with Default Deny** → Deny policies for those VPCs
-- **Stateful FW with Default Allow** → Allow policies for those VPCs  
-- **No Stateful FW Policy** → "Catch All Unknown" policies (requires manual review)
-- **Global Catch-All** → Final rule with configurable PERMIT/DENY action
+## Rollback
 
-#### Special Cases
-- **Discovery Mode VPCs**: Two policies created (web traffic + all other traffic)
-- **NAT-Only VPCs**: Allow-all policy for public internet access when no FQDN tags present
-- **Character Cleaning**: Consistent `~~` → `_` conversion across all components
+If you encounter issues during or after migration, you can rollback by performing the steps below. This will restore FQDN-based egress filtering.
 
-### Key Features
-- All rules except global catch-all are set to log by default
-- Global catch-all defaults to ALLOW (change to DENY after validation)
-- Disabled tags create WebGroups but are not used in policies
+### 1. Disable Local Egress
 
-## Important Considerations
+- From CoPilot, go to Security > Egress and click on the Egress VPC/VNets tab.
+- Select the particular VPC/VNet and click on the Remove button (all the way to the right).
 
-### Advanced Wildcard Handling
+### 2. Re-enable Single IP SNAT
 
-The translator automatically detects your Aviatrix Controller version and applies appropriate domain filtering:
+- From the Controller UI, go to Gateway and select the appropriate egress gateway and click Edit.
+- Scroll to Source NAT and click on Enable Single IP SNAT.
 
-**Controller Version 8.1 and Higher:**
-- All domain formats are supported, including advanced wildcards like `*example.com`
-- No domain filtering is performed
-- All domains from your FQDN configurations are included in the translation
+### 3. Re-attach Gateways to FQDN Tags
 
-**Controller Version 8.0 and Lower:**
-- Only basic wildcard patterns are supported: `*`, `*.domain.com`, and regular domains
-- Advanced wildcards like `*example.com` (missing dot after asterisk) are automatically filtered out
-- WARNING logs show which domains were filtered for compatibility
+- From the Controller UI, go to Security > Egress Control, scroll to Egress FQDN Filter.
+- Reattach the gateway to FQDN tags.
 
-**Manual Override with `--include-advanced-wildcards`:**
-Use this flag when you need to include advanced wildcard domains despite running an older Controller version:
+## Post-Migration Cleanup
 
-```bash
-python main.py --include-advanced-wildcards <other_options>
-```
+After confirming the migration is successful:
 
-**When to use this flag:**
-- You plan to upgrade your Controller to 8.1+ after applying the configuration
-- You're testing the translation output for a future Controller upgrade
-- You need to see the complete translated configuration regardless of current Controller version
-- You want to manually review all domains before filtering
-
-**Warning:** Including advanced wildcards on Controller 8.0 or lower may cause Terraform apply failures. Only use this flag if you understand the compatibility implications.
-
-### DCF 8.0 SNI Domain Validation
-
-The translator includes automatic validation for DCF 8.0 SNI domain compatibility based on your Controller version:
-
-**Supported Domain Formats (Controller 8.0 and lower):**
-- Exact wildcard: `*`
-- Wildcard with subdomain: `*.domain.com` (requires dot after asterisk)
-- Regular domain: `domain.com`
-
-**Validation Pattern:** `\*|\*\.[-A-Za-z0-9_.]+|[-A-Za-z0-9_.]+`
-
-**Automatic Filtering (Controller 8.0 and lower only):**
-- Malformed domains are automatically filtered out unless `--include-advanced-wildcards` is specified
-- WARNING logs generated for filtered domains
-- Examples filtered: `*example.com` (missing dot after asterisk)
-- Examples retained: `*.protection.office.com`, `example.com`, `*`
-
-**Controller 8.1+ Behavior:**
-- All domain formats are supported without filtering
-- No validation warnings generated
-- Advanced wildcards like `*example.com` are included automatically
-
-**Benefits:**
-- Prevents terraform apply failures
-- Maintains DCF 8.0 compatibility
-- Clear visibility via logging
-
-### FQDN SmartGroup Features
-
-**DNS Hostname SmartGroups:**
-- Enable filtering of non-HTTP/HTTPS traffic using FQDNs
-- Real-time DNS resolution at policy enforcement
-- Support for SSH, SMTP, custom applications, any-protocol rules
-
-**Requirements:**
-- Must use fully qualified domain names (FQDNs)
-- Valid DNS hostname characters only
-- No wildcard support
-- Uses gateway's configured DNS server (management DNS by default)
-
-**Usage Guidelines:**
-- **WebGroups**: HTTP/HTTPS traffic on ports 80/443 (optimal performance)
-- **FQDN SmartGroups**: All other traffic types
-
-**Translation Logic:**
-1. TCP ports 80/443 → WebGroups (optimal for web traffic)
-2. All other traffic → FQDN SmartGroups (comprehensive protocol support)
-
-### Migration Best Practices
-- Test in lab environment before production deployment
-- Start with global catch-all PERMIT, switch to DENY after validation
-- Review generated CSV files for policy verification
-- Use `terraform destroy` for easy rollback
-- All FQDN rules are automatically translated - no manual intervention required
+- The standalone gateway can be decommissioned.
+- FQDN tags can be deleted from Security > Egress Control.

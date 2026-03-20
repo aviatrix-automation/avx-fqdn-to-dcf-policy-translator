@@ -62,36 +62,16 @@ class WebGroupBuilder:
         port = str(row["port"])
         original_domains = row["fqdn"]
         
-        # First filter out CIDR and IP address entries
-        # Filter out CIDR entries that aren't valid for SNI filters (IP addresses are valid)
-        domains_without_cidr, cidr_entries = CIDRValidator.filter_cidr_notation(
-            original_domains, f"WebGroup {webgroup_name}"
-        )
-        
-        # Track CIDR entries that were filtered out
-        if cidr_entries:
-            logging.warning(f"WebGroup '{webgroup_name}' had {len(cidr_entries)} CIDR entries filtered: {cidr_entries}")
-            for cidr_entry in cidr_entries:
-                self.unsupported_cidr_tracker.add_cidr_entry(
-                    fqdn_tag_name=fqdn_tag_name,
-                    webgroup_name=webgroup_name,
-                    cidr_entry=cidr_entry,
-                    port=port,
-                    protocol=protocol,
-                    entry_type="CIDR",
-                    reason="CIDR notation not supported in SNI filters"
-                )
-        
-        # Then filter remaining domains for DCF 8.0 compatibility
+        # Filter domains for DCF 8.0 compatibility only
+        # Note: CIDR/IP filtering has been removed - these rules are now handled by SmartGroups
         valid_domains, invalid_domains = FQDNValidator.filter_domains_for_dcf_compatibility(
-            domains_without_cidr, webgroup_name, self.skip_incompatible_domain_filtering
+            original_domains, webgroup_name, self.skip_incompatible_domain_filtering
         )
 
         # Log if all domains were filtered out
         if len(original_domains) > 0 and len(valid_domains) == 0:
-            cidr_count = len(cidr_entries)
             invalid_count = len(invalid_domains)
-            logging.warning(f"WebGroup '{webgroup_name}' will be empty - all {len(original_domains)} entries were filtered ({cidr_count} CIDR, {invalid_count} DCF-incompatible)")
+            logging.warning(f"WebGroup '{webgroup_name}' will be empty - all {len(original_domains)} entries were filtered ({invalid_count} DCF-incompatible)")
 
         if invalid_domains:
             # Store invalid domains for reporting (legacy format)

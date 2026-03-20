@@ -136,11 +136,12 @@ class TestFQDNRuleProcessor:
         """Test basic splitting of FQDN rules into webgroup and hostname rules."""
         processor = FQDNRuleProcessor(['80', '443'])
         
-        # Create test data
+        # Create test data with FQDN column
         fqdn_tag_rule_df = pd.DataFrame({
             'fqdn_tag_name': ['tag1', 'tag2', 'tag3', 'tag4'],
             'protocol': ['tcp', 'tcp', 'ssh', 'all'],
             'port': ['80', '443', '22', ''],
+            'fqdn': ['example.com', 'test.com', 'server.com', 'blocked.com'],
             'other_col': ['a', 'b', 'c', 'd']
         })
         
@@ -154,7 +155,7 @@ class TestFQDNRuleProcessor:
             fqdn_tag_rule_df, fqdn_df
         )
         
-        # Webgroup rules should include TCP on ports 80/443
+        # Webgroup rules should include TCP on ports 80/443 WITHOUT CIDR/IP entries
         assert len(webgroup_rules) == 2
         assert set(webgroup_rules['port']) == {'80', '443'}
         
@@ -167,6 +168,44 @@ class TestFQDNRuleProcessor:
         # No unsupported rules
         assert len(unsupported_rules) == 0
 
+    def test_eval_unsupported_webgroups_cidr_ip_handling(self):
+        """Test that CIDR/IP rules on ports 80/443 go to hostname rules instead of webgroups."""
+        processor = FQDNRuleProcessor(['80', '443'])
+        
+        # Create test data with mix of domains, IP addresses, and CIDR blocks
+        fqdn_tag_rule_df = pd.DataFrame({
+            'fqdn_tag_name': ['domain_tag', 'ip_tag', 'cidr_tag', 'mixed_tag', 'mixed_tag'],
+            'protocol': ['tcp', 'tcp', 'tcp', 'tcp', 'tcp'],
+            'port': ['443', '443', '80', '443', '443'],
+            'fqdn': ['example.com', '192.168.1.100', '10.0.0.0/24', 'test.com', '172.16.1.1'],
+            'fqdn_mode': ['white', 'white', 'white', 'white', 'white']
+        })
+        
+        fqdn_df = pd.DataFrame({
+            'fqdn_tag': ['domain_tag', 'ip_tag', 'cidr_tag', 'mixed_tag'],
+            'fqdn_enabled': [True, True, True, True]
+        })
+        
+        webgroup_rules, hostname_rules, unsupported_rules = processor.eval_unsupported_webgroups(
+            fqdn_tag_rule_df, fqdn_df
+        )
+        
+        # Domain rules should be webgroup rules (no CIDR/IP content in individual rows)
+        assert len(webgroup_rules) == 2
+        webgroup_fqdns = set(webgroup_rules['fqdn'])
+        assert 'example.com' in webgroup_fqdns
+        assert 'test.com' in webgroup_fqdns  # This is a separate rule with domain content
+        
+        # CIDR/IP rules on web ports should become hostname rules
+        assert len(hostname_rules) == 3
+        hostname_fqdns = set(hostname_rules['fqdn'])
+        assert '192.168.1.100' in hostname_fqdns  # IP address
+        assert '10.0.0.0/24' in hostname_fqdns    # CIDR block
+        assert '172.16.1.1' in hostname_fqdns     # IP address
+        
+        # No unsupported rules
+        assert len(unsupported_rules) == 0
+
     def test_eval_unsupported_webgroups_disabled_filtering(self):
         """Test that disabled FQDN tags are filtered out."""
         processor = FQDNRuleProcessor(['80', '443'])
@@ -174,7 +213,8 @@ class TestFQDNRuleProcessor:
         fqdn_tag_rule_df = pd.DataFrame({
             'fqdn_tag_name': ['tag1', 'tag2'],
             'protocol': ['tcp', 'tcp'],
-            'port': ['80', '443']
+            'port': ['80', '443'],
+            'fqdn': ['example.com', 'test.com']
         })
         
         fqdn_df = pd.DataFrame({
@@ -199,7 +239,8 @@ class TestFQDNRuleProcessor:
         fqdn_tag_rule_df = pd.DataFrame({
             'fqdn_tag_name': ['tag1', 'tag2', 'tag3', 'tag4'],
             'protocol': ['http', 'https', 'all', 'tcp'],
-            'port': ['80', '80', '22', '80']
+            'port': ['80', '80', '22', '80'],
+            'fqdn': ['example.com', 'test.com', 'other.com', 'sample.com']
         })
         
         fqdn_df = pd.DataFrame({
@@ -227,7 +268,8 @@ class TestFQDNRuleProcessor:
         fqdn_tag_rule_df = pd.DataFrame({
             'fqdn_tag_name': ['tag1'],
             'protocol': ['tcp'],
-            'port': ['']  # blank port
+            'port': [''],  # blank port
+            'fqdn': ['example.com']
         })
         
         fqdn_df = pd.DataFrame({
@@ -460,7 +502,8 @@ class TestFQDNHandler:
         fqdn_tag_rule_df = pd.DataFrame({
             'fqdn_tag_name': ['tag1'],
             'protocol': ['tcp'],
-            'port': ['80']
+            'port': ['80'],
+            'fqdn': ['example.com']
         })
         
         fqdn_df = pd.DataFrame({

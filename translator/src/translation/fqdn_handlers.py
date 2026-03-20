@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 from config import TranslationConfig
 from data.processors import DataCleaner
-from utils.data_processing import normalize_protocol
+from utils.data_processing import normalize_protocol, is_ipv4
 from utils.cidr_validator import CIDRValidator
 
 # Configure pandas to avoid future warnings about downcasting
@@ -165,20 +165,37 @@ class FQDNRuleProcessor:
         # with existing webgroup logic
         enabled_fqdn_rules = fqdn_tag_rule_df[fqdn_tag_rule_df["fqdn_enabled"]]
 
-        # Rules that can use webgroups (HTTP/HTTPS on standard web ports)
+        # Helper function to check if an FQDN field contains CIDR or IP address
+        def has_cidr_or_ip(fqdn_value: str) -> bool:
+            """Check if an FQDN value is actually a CIDR block or IP address."""
+            if pd.isna(fqdn_value) or not isinstance(fqdn_value, str):
+                return False
+            return CIDRValidator.is_cidr_notation(fqdn_value.strip()) or CIDRValidator.is_ip_address(fqdn_value.strip())
+
+        # Add a column to check if each rule has CIDR/IP content
+        enabled_fqdn_rules = enabled_fqdn_rules.copy()
+        enabled_fqdn_rules["has_cidr_or_ip"] = enabled_fqdn_rules["fqdn"].apply(has_cidr_or_ip)
+
+        # Rules that can use webgroups (HTTP/HTTPS on standard web ports AND no CIDR/IP content)
         webgroup_rules = enabled_fqdn_rules[
             (enabled_fqdn_rules["protocol"].str.lower().isin(["tcp", "http", "https"]))
             & (enabled_fqdn_rules["port"].isin(self.default_web_port_ranges))
+            & (~enabled_fqdn_rules["has_cidr_or_ip"])  # Exclude rules with CIDR/IP content
         ]
 
         # ALL other enabled rules use hostname smartgroups
-        # (including protocol='all', SSH, blank ports)
+        # (including protocol='all', SSH, blank ports, AND rules with CIDR/IP on ports 80/443)
         hostname_rules = enabled_fqdn_rules[
             ~(
                 (enabled_fqdn_rules["protocol"].str.lower().isin(["tcp", "http", "https"]))
                 & (enabled_fqdn_rules["port"].isin(self.default_web_port_ranges))
+                & (~enabled_fqdn_rules["has_cidr_or_ip"])  # Only exclude if it's web traffic WITHOUT CIDR/IP
             )
         ]
+
+        # Remove the temporary column before returning
+        webgroup_rules = webgroup_rules.drop(columns=["has_cidr_or_ip"], errors='ignore')
+        hostname_rules = hostname_rules.drop(columns=["has_cidr_or_ip"], errors='ignore')
 
         # Convert protocol "all" to "ANY" for DCF compatibility
         hostname_rules = hostname_rules.copy()
@@ -186,6 +203,15 @@ class FQDNRuleProcessor:
 
         # Handle blank ports by setting to "ALL" for hostname SmartGroups
         hostname_rules.loc[hostname_rules["port"] == "", "port"] = "ALL"
+
+        # Log information about rules with CIDR/IP on web ports that were moved to SmartGroups
+        cidr_ip_web_rules = enabled_fqdn_rules[
+            (enabled_fqdn_rules["protocol"].str.lower().isin(["tcp", "http", "https"]))
+            & (enabled_fqdn_rules["port"].isin(self.default_web_port_ranges))
+            & (enabled_fqdn_rules["has_cidr_or_ip"])
+        ]
+        if len(cidr_ip_web_rules) > 0:
+            logging.info(f"Moved {len(cidr_ip_web_rules)} rules with CIDR/IP addresses on ports 80/443 to SmartGroups instead of WebGroups")
 
         # No more truly unsupported rules - everything is handled
         unsupported_rules = pd.DataFrame()
@@ -239,6 +265,7 @@ class WebGroupBuilder:
         fqdn_tag_rule_df["name"] = fqdn_tag_rule_df.apply(create_webgroup_name, axis=1)
 
         # Filter domains for DCF 8.0 compatibility before creating selectors
+        # Note: CIDR/IP filtering has been removed - these rules are now handled by SmartGroups
         def filter_and_create_selector(row: pd.Series) -> Dict[str, Any]:
             webgroup_name = row["name"]
             fqdn_tag_name = row["fqdn_tag_name"]
@@ -246,29 +273,9 @@ class WebGroupBuilder:
             port = str(row["port"])
             original_domains = row["fqdn"]
             
-            # First filter out CIDR entries (IP addresses are valid for SNI filters)
-            domains_without_cidr, cidr_entries = CIDRValidator.filter_cidr_notation(
-                original_domains, webgroup_name
-            )
-            
-            # Track CIDR entries that were filtered out
-            if cidr_entries:
-                logging.warning(f"WebGroup '{webgroup_name}' had {len(cidr_entries)} CIDR entries filtered: {cidr_entries}")
-                if self.unsupported_cidr_tracker:
-                    for cidr_entry in cidr_entries:
-                        self.unsupported_cidr_tracker.add_cidr_entry(
-                            fqdn_tag_name=fqdn_tag_name,
-                            webgroup_name=webgroup_name,
-                            cidr_entry=cidr_entry,
-                            port=port,
-                            protocol=protocol,
-                            entry_type="CIDR",
-                            reason="CIDR notation not supported in SNI filters"
-                        )
-            
-            # Then filter remaining domains for DCF 8.0 compatibility
+            # Filter domains for DCF 8.0 compatibility only (no CIDR filtering)
             valid_domains, invalid_domains = FQDNValidator.filter_domains_for_dcf_compatibility(
-                domains_without_cidr, webgroup_name, self.skip_incompatible_domain_filtering
+                original_domains, webgroup_name, self.skip_incompatible_domain_filtering
             )
 
             if invalid_domains:
@@ -295,9 +302,8 @@ class WebGroupBuilder:
 
             # Log if all domains were filtered out
             if len(original_domains) > 0 and len(valid_domains) == 0:
-                cidr_count = len(cidr_entries)
                 invalid_count = len(invalid_domains)
-                logging.warning(f"WebGroup '{webgroup_name}' will be empty - all {len(original_domains)} entries were filtered ({cidr_count} CIDR, {invalid_count} DCF-incompatible)")
+                logging.warning(f"WebGroup '{webgroup_name}' will be empty - all {len(original_domains)} entries were filtered ({invalid_count} DCF-incompatible)")
 
             return self._translate_fqdn_tag_to_sg_selector(valid_domains)
 
@@ -397,13 +403,35 @@ class HostnameSmartGroupBuilder:
             fqdn_list = row["fqdn"]
             fqdn_hash = abs(hash(str(sorted(fqdn_list)))) % 10000
 
-            name = f"fqdn_{fqdn_tag_name}_{fqdn_hash}"
-
-            # Create selector for hostname smartgroup using fqdn field
+            # Create selector for hostname smartgroup using appropriate field type
             # Always use a list of match expressions for consistency
             match_expressions = []
+            has_cidr = False
+            has_fqdn = False
+            
             for fqdn in fqdn_list:
-                match_expressions.append({"fqdn": fqdn.strip()})
+                fqdn_value = fqdn.strip()
+                # Check if this is an IP address or CIDR notation
+                if CIDRValidator.is_cidr_notation(fqdn_value) or CIDRValidator.is_ip_address(fqdn_value):
+                    # Use cidr selector for IP addresses and CIDR notation
+                    match_expressions.append({"cidr": fqdn_value})
+                    has_cidr = True
+                else:
+                    # Use fqdn selector for actual domain names
+                    match_expressions.append({"fqdn": fqdn_value})
+                    has_fqdn = True
+            
+            # Choose appropriate prefix based on content type
+            # If mixed content, prefer cidr prefix since it's more specific
+            if has_cidr and not has_fqdn:
+                prefix = "cidr"
+            elif has_fqdn and not has_cidr:
+                prefix = "fqdn"
+            else:
+                # Mixed content - use "mixed" prefix
+                prefix = "mixed"
+            
+            name = f"{prefix}_{fqdn_tag_name}_{fqdn_hash}"
             selector = {"match_expressions": match_expressions}
 
             hostname_smartgroups.append(
