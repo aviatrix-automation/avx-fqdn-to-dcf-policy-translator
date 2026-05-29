@@ -82,24 +82,44 @@ class TerraformExporter:
         if policies_df.empty:
             self.logger.warning("Attempting to export empty policies DataFrame")
             policy_dict: Dict[str, Any] = {
-                "resource": {
-                    "aviatrix_distributed_firewalling_policy_list": {
-                        "distributed_firewalling_policy_list_1": {"policies": []}
+                "data": {
+                    "aviatrix_dcf_attachment_point": {
+                        "tf_before_ui": {"name": "TERRAFORM_BEFORE_UI_MANAGED"}
                     }
-                }
+                },
+                "resource": {
+                    "aviatrix_dcf_ruleset": {
+                        "dcf_ruleset_1": {
+                            "name": "dcf-ruleset",
+                            "attach_to": "${data.aviatrix_dcf_attachment_point.tf_before_ui.id}",
+                            "rules": [],
+                        }
+                    }
+                },
             }
         else:
             # Add required fields for DCF
             policies_copy = policies_df.copy()
             policies_copy["exclude_sg_orchestration"] = True
+            policies_copy["log_profile"] = "def000ad-7000-0000-0000-000000000001"
+            policies_copy["tls_profile"] = ""
 
             policy_records = policies_copy.to_dict(orient="records")
             policy_dict = {
-                "resource": {
-                    "aviatrix_distributed_firewalling_policy_list": {
-                        "distributed_firewalling_policy_list_1": {"policies": policy_records}
+                "data": {
+                    "aviatrix_dcf_attachment_point": {
+                        "tf_before_ui": {"name": "TERRAFORM_BEFORE_UI_MANAGED"}
                     }
-                }
+                },
+                "resource": {
+                    "aviatrix_dcf_ruleset": {
+                        "dcf_ruleset_1": {
+                            "name": "dcf-ruleset",
+                            "attach_to": "${data.aviatrix_dcf_attachment_point.tf_before_ui.id}",
+                            "rules": policy_records,
+                        }
+                    }
+                },
             }
 
         output_file = Path(self.config.get_output_file_path("dcf_policies"))
@@ -138,6 +158,10 @@ provider "aviatrix" {
         output_file = Path(self.config.get_output_file_path("main_tf"))
 
         try:
+            if output_file.exists():
+                self.logger.info(f"main.tf already exists, skipping: {output_file}")
+                return output_file
+
             with open(output_file, "w") as f:
                 f.write(main_tf_content)
 
