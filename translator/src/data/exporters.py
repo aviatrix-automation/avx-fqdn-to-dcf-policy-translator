@@ -79,9 +79,58 @@ class TerraformExporter:
         Returns:
             Path to the exported file
         """
+        use_dcf_ruleset = getattr(self.config, "use_dcf_ruleset", False)
+
+        if use_dcf_ruleset:
+            policy_dict = self._build_dcf_ruleset_dict(policies_df)
+        else:
+            policy_dict = self._build_policy_list_dict(policies_df)
+
+        output_file = Path(self.config.get_output_file_path("dcf_policies"))
+
+        try:
+            with open(output_file, "w") as json_file:
+                json.dump(policy_dict, json_file, indent=2)
+
+            self.logger.info(f"Exported {len(policies_df)} DCF policies to {output_file}")
+            return output_file
+
+        except Exception as e:
+            self.logger.error(f"Failed to export DCF policies to {output_file}: {e}")
+            raise
+
+    def _build_policy_list_dict(self, policies_df: pd.DataFrame) -> Dict[str, Any]:
+        """Build Terraform JSON for aviatrix_distributed_firewalling_policy_list."""
         if policies_df.empty:
             self.logger.warning("Attempting to export empty policies DataFrame")
-            policy_dict: Dict[str, Any] = {
+            return {
+                "resource": {
+                    "aviatrix_distributed_firewalling_policy_list": {
+                        "distributed_firewalling_policy_list_1": {
+                            "policies": []
+                        }
+                    }
+                }
+            }
+        else:
+            policies_copy = policies_df.copy()
+            policies_copy["exclude_sg_orchestration"] = True
+            policy_records = policies_copy.to_dict(orient="records")
+            return {
+                "resource": {
+                    "aviatrix_distributed_firewalling_policy_list": {
+                        "distributed_firewalling_policy_list_1": {
+                            "policies": policy_records
+                        }
+                    }
+                }
+            }
+
+    def _build_dcf_ruleset_dict(self, policies_df: pd.DataFrame) -> Dict[str, Any]:
+        """Build Terraform JSON for aviatrix_dcf_ruleset."""
+        if policies_df.empty:
+            self.logger.warning("Attempting to export empty policies DataFrame")
+            return {
                 "data": {
                     "aviatrix_dcf_attachment_point": {
                         "tf_before_ui": {"name": "TERRAFORM_BEFORE_UI_MANAGED"}
@@ -98,14 +147,12 @@ class TerraformExporter:
                 },
             }
         else:
-            # Add required fields for DCF
             policies_copy = policies_df.copy()
             policies_copy["exclude_sg_orchestration"] = True
             policies_copy["log_profile"] = "def000ad-7000-0000-0000-000000000001"
             policies_copy["tls_profile"] = ""
-
             policy_records = policies_copy.to_dict(orient="records")
-            policy_dict = {
+            return {
                 "data": {
                     "aviatrix_dcf_attachment_point": {
                         "tf_before_ui": {"name": "TERRAFORM_BEFORE_UI_MANAGED"}
@@ -121,19 +168,6 @@ class TerraformExporter:
                     }
                 },
             }
-
-        output_file = Path(self.config.get_output_file_path("dcf_policies"))
-
-        try:
-            with open(output_file, "w") as json_file:
-                json.dump(policy_dict, json_file, indent=2)
-
-            self.logger.info(f"Exported {len(policies_df)} DCF policies to {output_file}")
-            return output_file
-
-        except Exception as e:
-            self.logger.error(f"Failed to export DCF policies to {output_file}: {e}")
-            raise
 
     def create_main_tf(self) -> Path:
         """

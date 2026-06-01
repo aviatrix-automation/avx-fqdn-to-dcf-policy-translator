@@ -61,6 +61,9 @@ class TranslationConfig:
     # Advanced domain handling
     include_advanced_wildcards: bool = False
 
+    # Output format: True = aviatrix_dcf_ruleset, False = aviatrix_distributed_firewalling_policy_list
+    use_dcf_ruleset: bool = False
+
     # Optional customer/organization context
     customer_name: Optional[str] = None
     organization_name: Optional[str] = None
@@ -115,7 +118,10 @@ class TranslationConfig:
 
     def get_output_file_path(self, file_key: str) -> Path:
         """Get the full path for an output file."""
-        filename = self.output_files.get(file_key)
+        if file_key == "dcf_policies" and getattr(self, "use_dcf_ruleset", False):
+            filename = "aviatrix_dcf_ruleset.tf.json"
+        else:
+            filename = self.output_files.get(file_key)
         if not filename:
             raise ValueError(f"Unknown output file key: {file_key}")
         return self.output_dir / filename

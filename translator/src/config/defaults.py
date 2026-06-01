@@ -27,7 +27,7 @@ TERRAFORM_FILE_PATTERNS = {
 OUTPUT_FILES = {
     "smart_groups": "aviatrix_smart_group.tf.json",
     "web_groups": "aviatrix_web_group.tf.json",
-    "dcf_policies": "aviatrix_dcf_ruleset.tf.json",
+    "dcf_policies": "aviatrix_distributed_firewalling_policy_list.tf.json",
     "main_tf": "main.tf",
     "full_policy_list": "full_policy_list.csv",
     "smart_groups_csv": "smartgroups.csv",
