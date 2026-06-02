@@ -68,6 +68,9 @@ python src/main.py --global-catch-all-action DENY
 - `--anywhere-sg-id`: Anywhere security group ID
 - `--default-web-port-ranges`: Default web port ranges (default: 80 443)
 - `--global-catch-all-action {PERMIT,DENY}`: Global catch-all action (default: PERMIT)
+- `--output-format {dcf_ruleset,policy}`: Output format for DCF policies (default: `dcf_ruleset`)
+  - `dcf_ruleset`: Uses `aviatrix_dcf_ruleset` — required for controllers 9.x and above. This is optional for 8.2, and not supported in earlier versions.
+  - `policy`: Uses `aviatrix_distributed_firewalling_policy_list` — legacy format, only supported on older controllers
 
 ### Logging
 - `--loglevel {DEBUG,INFO,WARNING,ERROR,CRITICAL}`: Set logging level (default: WARNING)
@@ -80,10 +83,11 @@ python src/main.py --global-catch-all-action DENY
 ## Output Files
 
 ### Terraform Configuration
-- `aviatrix_distributed_firewall_policy_list.tf.json`: DCF rule list
+- `aviatrix_dcf_ruleset.tf.json`: DCF ruleset (default, for controllers 9.x+)
+- `aviatrix_distributed_firewalling_policy_list.tf.json`: DCF rule list (legacy, `--output-format policy` only)
 - `aviatrix_smart_group.tf.json`: SmartGroups (CIDR, VPC, and FQDN-based)
 - `aviatrix_web_group.tf.json`: WebGroups for HTTP/HTTPS traffic
-- `main.tf`: Complete Terraform configuration
+- `main.tf`: Provider configuration (not overwritten if it already exists)
 
 ### Review Files
 - `smartgroups.csv`: SmartGroup configuration summary

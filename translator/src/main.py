@@ -125,6 +125,14 @@ Examples:
         help="Include domains with advanced wildcard patterns (e.g., *.domain.com) even for controller versions 8.0 and lower"
     )
 
+    # Output format
+    parser.add_argument(
+        "--output-format",
+        default="policy",
+        choices=["policy", "dcf_ruleset"],
+        help="Output format for DCF policies: 'policy' uses aviatrix_distributed_firewalling_policy_list (default), 'dcf_ruleset' uses aviatrix_dcf_ruleset",
+    )
+
     return parser.parse_args()
 
 
@@ -204,6 +212,8 @@ def main() -> int:
         config.custom_internet_smartgroup_name = args.custom_internet_smartgroup_name
     if hasattr(args, "include_advanced_wildcards"):
         config.include_advanced_wildcards = args.include_advanced_wildcards
+    if hasattr(args, "output_format"):
+        config.use_dcf_ruleset = (args.output_format == "dcf_ruleset")
 
     # Setup logging
     setup_logging(config)
