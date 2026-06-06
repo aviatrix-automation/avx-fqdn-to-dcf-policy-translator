@@ -193,65 +193,69 @@ class CIDRAnalyzer:
 
     def generate_internet_cidr_exclusions(self, vpc_cidrs: List[str]) -> List[str]:
         """
-        Generate CIDR ranges representing "Internet minus VPC CIDRs".
-        
-        This creates a complementary set of CIDRs that covers all Internet
-        addresses except the specified VPC CIDRs.
-        
-        Args:
-            vpc_cidrs: List of VPC CIDR strings to exclude from Internet
-            
-        Returns:
-            List of CIDR strings representing Internet space minus VPC CIDRs
-        """
-        if not vpc_cidrs:
-            # No VPC CIDRs to exclude, return full Internet range
-            return ["0.0.0.0/0"]
+        Generate CIDR ranges representing the Aviatrix "Public Internet" SmartGroup
+        (avtx_system_internet_routes_app_domain) further reduced by any
+        non-RFC1918/CGNAT VPC CIDRs.
 
+        Result = 0.0.0.0/0
+                 - RFC1918 (10/8, 172.16/12, 192.168/16)
+                 - CGNAT   (100.64/10)
+                 - {VPC CIDRs that are not RFC1918/CGNAT}
+
+        Args:
+            vpc_cidrs: List of VPC CIDR strings; only non-RFC1918/CGNAT entries
+                       are subtracted from the public Internet space.
+
+        Returns:
+            Sorted list of CIDR strings representing the custom Internet space.
+        """
         try:
-            # Convert VPC CIDRs to network objects
-            vpc_networks = []
-            for cidr in vpc_cidrs:
+            # Start with full IPv4 address space and subtract RFC1918 + CGNAT
+            # so the baseline matches the default Public Internet SmartGroup.
+            remaining = [ipaddress.IPv4Network("0.0.0.0/0")]
+            for private_range in self.standard_private_ranges:
+                remaining = self._subtract_network(remaining, private_range)
+
+            # Subtract only the non-RFC1918/CGNAT VPC CIDRs. RFC1918/CGNAT VPC
+            # CIDRs are already excluded by the baseline above.
+            for cidr in vpc_cidrs or []:
                 try:
-                    vpc_networks.append(ipaddress.IPv4Network(cidr, strict=False))
+                    vpc_network = ipaddress.IPv4Network(cidr, strict=False)
                 except (ipaddress.AddressValueError, ValueError) as e:
                     self.logger.warning(f"Skipping invalid VPC CIDR {cidr}: {e}")
+                    continue
+                if self.is_rfc1918_or_cgnat(cidr):
+                    continue
+                remaining = self._subtract_network(remaining, vpc_network)
 
-            if not vpc_networks:
-                self.logger.warning("No valid VPC CIDRs found - returning full Internet range")
-                return ["0.0.0.0/0"]
+            internet_cidrs = sorted(
+                (str(n) for n in remaining),
+                key=lambda s: (int(ipaddress.IPv4Network(s).network_address),
+                               ipaddress.IPv4Network(s).prefixlen),
+            )
 
-            # Start with full IPv4 address space
-            internet_space = ipaddress.IPv4Network("0.0.0.0/0")
-            
-            # Calculate the complementary CIDRs
-            remaining_networks = [internet_space]
-            
-            for vpc_network in vpc_networks:
-                new_remaining = []
-                for remaining in remaining_networks:
-                    # Subtract the VPC network from each remaining network
-                    try:
-                        complementary = list(remaining.address_exclude(vpc_network))
-                        new_remaining.extend(complementary)
-                    except ValueError:
-                        # Networks don't overlap, keep the original
-                        new_remaining.append(remaining)
-                remaining_networks = new_remaining
-
-            # Convert back to string list and sort for consistency
-            internet_cidrs = [str(network) for network in remaining_networks]
-            internet_cidrs.sort()
-            
             self.logger.info(f"Generated {len(internet_cidrs)} Internet CIDR exclusions")
             self.logger.debug(f"Internet CIDRs (first 10): {internet_cidrs[:10]}")
-            
+
             return internet_cidrs
 
         except Exception as e:
             self.logger.error(f"Error generating Internet CIDR exclusions: {e}")
-            # Fallback to full Internet range
             return ["0.0.0.0/0"]
+
+    @staticmethod
+    def _subtract_network(networks: List[ipaddress.IPv4Network],
+                          exclude: ipaddress.IPv4Network) -> List[ipaddress.IPv4Network]:
+        """Return `networks` with `exclude` carved out of every overlapping entry."""
+        result: List[ipaddress.IPv4Network] = []
+        for net in networks:
+            try:
+                result.extend(net.address_exclude(exclude))
+            except ValueError:
+                # No overlap, or net is fully contained in exclude.
+                if not net.subnet_of(exclude):
+                    result.append(net)
+        return result
 
     def analyze_vpc_cidr_requirements(self, gateways_df: pd.DataFrame) -> dict:
         """
